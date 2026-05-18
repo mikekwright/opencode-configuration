@@ -1,5 +1,10 @@
 { self }:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   helpers = import ../lib.nix { inherit lib; };
   cfg = config.services.opencode;
@@ -35,7 +40,13 @@ let
     wrapperName = "opencode-service";
   };
 
-  linuxServiceCommand = lib.escapeShellArgs ([ "${lib.getExe servicePackage}" "serve" ] ++ cfg.web.extraArgs);
+  linuxServiceCommand = lib.escapeShellArgs (
+    [
+      "${lib.getExe servicePackage}"
+      "serve"
+    ]
+    ++ cfg.web.extraArgs
+  );
 in
 {
   imports = [
@@ -47,7 +58,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.opencode;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
       description = "Base opencode package to wrap.";
     };
 
@@ -150,7 +161,11 @@ in
           enable = true;
           config = {
             Label = "ai.opencode";
-            ProgramArguments = [ "${lib.getExe servicePackage}" "serve" ] ++ cfg.web.extraArgs;
+            ProgramArguments = [
+              "${lib.getExe servicePackage}"
+              "serve"
+            ]
+            ++ cfg.web.extraArgs;
             RunAtLoad = cfg.web.autoStart;
             KeepAlive = cfg.web.autoStart;
             WorkingDirectory = cfg.web.workingDirectory;
