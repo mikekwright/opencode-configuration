@@ -10,6 +10,8 @@ let
     enableComputerUse = cfg.mcp.computerUse.enable;
     computerUsePackage = cfg.mcp.computerUse.package;
     bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
+    serverPasswordFile = cfg.serverPasswordFile;
+    serverUsername = cfg.serverUsername;
     extraConfig = cfg.extraConfig;
     extraEnv = cfg.extraEnv;
     wrapperName = "opencode";
@@ -21,6 +23,8 @@ let
     enableComputerUse = cfg.mcp.computerUse.enable;
     computerUsePackage = cfg.mcp.computerUse.package;
     bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
+    serverPasswordFile = cfg.serverPasswordFile;
+    serverUsername = cfg.serverUsername;
     extraConfig = lib.recursiveUpdate cfg.extraConfig {
       server = {
         hostname = cfg.service.hostname;
@@ -52,7 +56,19 @@ in
     extraEnv = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
-      description = "Extra environment variables exported by the wrapper.";
+      description = "Extra environment variables exported by the wrapper. This can include `OPENCODE_SERVER_PASSWORD`, though `serverPasswordFile` is preferred for secrets.";
+    };
+
+    serverPasswordFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "File containing the password for `OPENCODE_SERVER_PASSWORD`. Use this or `extraEnv.OPENCODE_SERVER_PASSWORD`. If both are set, the file value wins.";
+    };
+
+    serverUsername = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Optional username for HTTP basic auth. Defaults to opencode when unset.";
     };
 
     mcp.computerUse = {
@@ -107,6 +123,16 @@ in
   config = lib.mkIf cfg.enable (
     lib.mkMerge [
       {
+        assertions = [
+          {
+            assertion =
+              !(cfg.service.enable && cfg.service.hostname == "0.0.0.0")
+              || cfg.serverPasswordFile != null
+              || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
+            message = "services.opencode.service.hostname = \"0.0.0.0\" requires a password. Set services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
+          }
+        ];
+
         home.packages = [ interactivePackage ];
 
         warnings = lib.optional (cfg.mcp.computerUse.enable && pkgs.stdenv.isLinux) ''

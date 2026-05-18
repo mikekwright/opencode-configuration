@@ -16,6 +16,18 @@ Open the development shell:
 nix develop
 ```
 
+Start the web UI locally:
+
+```bash
+nix run . -- web
+```
+
+Expose the web UI on your network with a password:
+
+```bash
+OPENCODE_SERVER_PASSWORD=secret nix run . -- web --hostname 0.0.0.0 --port 4096
+```
+
 ## Flake outputs
 
 - `packages.<system>.default` – wrapped `opencode`
@@ -37,7 +49,64 @@ nix develop
 - keep supporting docs as `notes.md`, `examples.md`, or similar in the same folder
 - the packaging layer copies `nix/skills/` into the installed opencode skill bundle
 
-## Home Manager example
+## `extraEnv` explained
+
+`extraEnv` is a Nix attribute set of environment variables that the wrapper exports before launching opencode.
+
+Use it for normal runtime environment variables such as provider API keys, feature flags, or a custom HTTP auth username.
+
+Example:
+
+```nix
+{
+  services.opencode = {
+    enable = true;
+    extraEnv = {
+      ANTHROPIC_API_KEY = "...";
+      OPENCODE_SERVER_USERNAME = "michael";
+    };
+  };
+}
+```
+
+Passwords can be supplied either way:
+
+- `serverPasswordFile = "/path/to/file";`
+- `extraEnv.OPENCODE_SERVER_PASSWORD = "...";`
+
+If both are set, `serverPasswordFile` wins.
+
+For secrets, prefer `serverPasswordFile` over putting the secret directly into `extraEnv`.
+
+## Password sources
+
+### Password from file
+
+```nix
+{
+  services.opencode = {
+    enable = true;
+    serverPasswordFile = "/run/secrets/opencode-password";
+  };
+}
+```
+
+### Password from `extraEnv`
+
+```nix
+{
+  services.opencode = {
+    enable = true;
+    extraEnv = {
+      OPENCODE_SERVER_PASSWORD = "secret";
+    };
+  };
+}
+```
+
+## Examples
+
+### Home Manager: minimal
 
 ```nix
 {
@@ -52,7 +121,52 @@ nix develop
 
 `computer-use-mcp` is enabled by default on Darwin. On Linux it is available, but disabled by default because it expects an interactive X11 session.
 
-## NixOS example
+### Home Manager: network-accessible service with password file
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.opencode = {
+    enable = true;
+    serverPasswordFile = "/run/secrets/opencode-password";
+    serverUsername = "michael";
+
+    service = {
+      enable = true;
+      hostname = "0.0.0.0";
+      port = 4096;
+    };
+  };
+}
+```
+
+If `service.hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
+
+### Home Manager: extra config and extra environment
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.opencode = {
+    enable = true;
+
+    extraConfig = {
+      model = "anthropic/claude-sonnet-4-5";
+      server.cors = [ "https://example.com" ];
+    };
+
+    extraEnv = {
+      ANTHROPIC_API_KEY = "...";
+      OPENCODE_SERVER_USERNAME = "opencode";
+      OPENCODE_SERVER_PASSWORD = "secret";
+    };
+  };
+}
+```
+
+### NixOS: minimal
 
 ```nix
 {
@@ -63,6 +177,41 @@ nix develop
 ```
 
 The NixOS service runs `opencode serve` and leaves `computer-use-mcp` disabled by default.
+
+### NixOS: network-accessible service with password file
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.opencode = {
+    enable = true;
+    hostname = "0.0.0.0";
+    port = 4096;
+    serverPasswordFile = "/run/secrets/opencode-password";
+    serverUsername = "michael";
+  };
+}
+```
+
+If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
+
+### NixOS: extra environment
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.opencode = {
+    enable = true;
+    extraEnv = {
+      ANTHROPIC_API_KEY = "...";
+      OPENCODE_SERVER_USERNAME = "opencode";
+      OPENCODE_SERVER_PASSWORD = "secret";
+    };
+  };
+}
+```
 
 ## Rango browser extension
 
