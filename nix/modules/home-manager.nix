@@ -27,17 +27,21 @@ let
     serverUsername = cfg.serverUsername;
     extraConfig = lib.recursiveUpdate cfg.extraConfig {
       server = {
-        hostname = cfg.service.hostname;
-        port = cfg.service.port;
+        hostname = cfg.web.hostname;
+        port = cfg.web.port;
       };
     };
     extraEnv = cfg.extraEnv;
     wrapperName = "opencode-service";
   };
 
-  linuxServiceCommand = lib.escapeShellArgs ([ "${lib.getExe servicePackage}" "serve" ] ++ cfg.service.extraArgs);
+  linuxServiceCommand = lib.escapeShellArgs ([ "${lib.getExe servicePackage}" "serve" ] ++ cfg.web.extraArgs);
 in
 {
+  imports = [
+    (lib.mkRenamedOptionModule [ "services" "opencode" "service" ] [ "services" "opencode" "web" ])
+  ];
+
   options.services.opencode = {
     enable = lib.mkEnableOption "opencode";
 
@@ -85,13 +89,13 @@ in
       };
     };
 
-    service = {
-      enable = lib.mkEnableOption "the opencode background user service";
+    web = {
+      enable = lib.mkEnableOption "the opencode background web service";
 
       autoStart = lib.mkOption {
         type = lib.types.bool;
         default = true;
-        description = "Start the user service automatically.";
+        description = "Start the web service automatically.";
       };
 
       hostname = lib.mkOption {
@@ -126,10 +130,10 @@ in
         assertions = [
           {
             assertion =
-              !(cfg.service.enable && cfg.service.hostname == "0.0.0.0")
+              !(cfg.web.enable && cfg.web.hostname == "0.0.0.0")
               || cfg.serverPasswordFile != null
               || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
-            message = "services.opencode.service.hostname = \"0.0.0.0\" requires a password. Set services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
+            message = "services.opencode.web.hostname = \"0.0.0.0\" requires a password. Set services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
           }
         ];
 
@@ -141,20 +145,20 @@ in
         '';
       }
 
-      (lib.mkIf (cfg.service.enable && pkgs.stdenv.isDarwin) {
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) {
         launchd.agents.opencode = {
           enable = true;
           config = {
             Label = "ai.opencode";
-            ProgramArguments = [ "${lib.getExe servicePackage}" "serve" ] ++ cfg.service.extraArgs;
-            RunAtLoad = cfg.service.autoStart;
-            KeepAlive = cfg.service.autoStart;
-            WorkingDirectory = cfg.service.workingDirectory;
+            ProgramArguments = [ "${lib.getExe servicePackage}" "serve" ] ++ cfg.web.extraArgs;
+            RunAtLoad = cfg.web.autoStart;
+            KeepAlive = cfg.web.autoStart;
+            WorkingDirectory = cfg.web.workingDirectory;
           };
         };
       })
 
-      (lib.mkIf (cfg.service.enable && pkgs.stdenv.isLinux) {
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isLinux) {
         systemd.user.services.opencode = {
           Unit = {
             Description = "OpenCode user service";
@@ -163,11 +167,11 @@ in
 
           Service = {
             ExecStart = linuxServiceCommand;
-            WorkingDirectory = cfg.service.workingDirectory;
+            WorkingDirectory = cfg.web.workingDirectory;
             Restart = "on-failure";
           };
 
-          Install = lib.mkIf cfg.service.autoStart {
+          Install = lib.mkIf cfg.web.autoStart {
             WantedBy = [ "default.target" ];
           };
         };

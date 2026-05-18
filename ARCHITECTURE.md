@@ -18,8 +18,8 @@ Bundled skills live in `nix/skills/` and are packaged to `share/opencode/skills`
 
 ## Service modules
 
-- Home Manager uses `launchd.agents` on Darwin
-- Home Manager uses `systemd.user.services` on Linux
+- Home Manager uses `services.opencode.web.*` and maps it to `launchd.agents` on Darwin
+- Home Manager uses `services.opencode.web.*` and maps it to `systemd.user.services` on Linux
 - NixOS uses a system service running `opencode serve`
 
 ## Platform defaults

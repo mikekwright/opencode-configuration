@@ -75,7 +75,7 @@
 
                 services.opencode = {
                   enable = true;
-                  service.enable = true;
+                  web.enable = true;
                 };
               }
             ];

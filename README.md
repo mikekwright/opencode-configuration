@@ -114,7 +114,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 
   services.opencode = {
     enable = true;
-    service.enable = true;
+    web.enable = true;
   };
 }
 ```
@@ -132,7 +132,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
     serverPasswordFile = "/run/secrets/opencode-password";
     serverUsername = "michael";
 
-    service = {
+    web = {
       enable = true;
       hostname = "0.0.0.0";
       port = 4096;
@@ -141,7 +141,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 }
 ```
 
-If `service.hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
+If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
 
 ### Home Manager: extra config and extra environment
 
