@@ -42,12 +42,16 @@
       mkComputerUsePackage = pkgs:
         pkgs.callPackage ./nix/packages/computer-use-mcp.nix { };
 
+      mkBundledSkillsPackage = pkgs:
+        pkgs.callPackage ./nix/packages/opencode-skills.nix { };
+
       mkDefaultPackage = pkgs:
         let
           computerUsePackage = mkComputerUsePackage pkgs;
+          bundledSkillsPackage = mkBundledSkillsPackage pkgs;
         in
         helpers.mkOpencodePackage {
-          inherit pkgs computerUsePackage;
+          inherit pkgs computerUsePackage bundledSkillsPackage;
           enableComputerUse = pkgs.stdenv.isDarwin || pkgs.stdenv.isLinux;
           wrapperName = "opencode";
         };
@@ -102,12 +106,14 @@
         let
           pkgs = mkPkgs system;
           computerUsePackage = mkComputerUsePackage pkgs;
+          bundledSkillsPackage = mkBundledSkillsPackage pkgs;
           defaultPackage = mkDefaultPackage pkgs;
         in
         {
           default = defaultPackage;
           opencode = pkgs.opencode;
           computer-use-mcp = computerUsePackage;
+          opencode-skills = bundledSkillsPackage;
         }
       );
 
@@ -158,6 +164,7 @@
         {
           default = self.packages.${system}.default;
           computer-use-mcp = self.packages.${system}.computer-use-mcp;
+          opencode-skills = self.packages.${system}.opencode-skills;
           home-manager = mkHomeManagerCheck pkgs;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {

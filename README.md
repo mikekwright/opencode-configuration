@@ -20,13 +20,22 @@ nix develop
 
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
+- `packages.<system>.opencode-skills` – bundled opencode skills package
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
 - `nixosModules.default` – NixOS module for a headless Linux service
 
-## Bundled MCP servers
+## Bundled runtime additions
 
 - `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`
 - `computer-use-mcp` is available as a local packaged MCP
+- bundled skills are installed from `$out/share/opencode/skills`
+- the initial bundled skill is `devenv-2`
+
+## Adding future bundled skills
+
+- add the skill under `nix/skills/<skill-name>/SKILL.md`
+- keep supporting docs as `notes.md`, `examples.md`, or similar in the same folder
+- the packaging layer copies `nix/skills/` into the installed opencode skill bundle
 
 ## Home Manager example
 

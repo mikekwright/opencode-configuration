@@ -9,6 +9,7 @@ let
     opencodePackage = cfg.package;
     enableComputerUse = cfg.mcp.computerUse.enable;
     computerUsePackage = cfg.mcp.computerUse.package;
+    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
     extraConfig = cfg.extraConfig;
     extraEnv = cfg.extraEnv;
     wrapperName = "opencode";
@@ -19,6 +20,7 @@ let
     opencodePackage = cfg.package;
     enableComputerUse = cfg.mcp.computerUse.enable;
     computerUsePackage = cfg.mcp.computerUse.package;
+    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
     extraConfig = lib.recursiveUpdate cfg.extraConfig {
       server = {
         hostname = cfg.service.hostname;

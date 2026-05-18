@@ -12,6 +12,14 @@ let
     };
   };
 
+  mkBundledSkillConfig =
+    {
+      bundledSkillsPackage ? null,
+    }:
+    lib.optionalAttrs (bundledSkillsPackage != null) {
+      skills.paths = [ "${bundledSkillsPackage}/share/opencode/skills" ];
+    };
+
   mkComputerUseConfig =
     {
       enableComputerUse ? false,
@@ -31,11 +39,16 @@ let
     {
       enableComputerUse ? false,
       computerUsePackage ? null,
+      bundledSkillsPackage ? null,
       extraConfig ? { },
     }:
     lib.recursiveUpdate
       (lib.recursiveUpdate
-        baseRuntimeConfig
+        (lib.recursiveUpdate
+          baseRuntimeConfig
+          (mkBundledSkillConfig {
+            inherit bundledSkillsPackage;
+          }))
         (mkComputerUseConfig {
           inherit enableComputerUse computerUsePackage;
         }))
@@ -52,6 +65,7 @@ in
       opencodePackage ? pkgs.opencode,
       enableComputerUse ? false,
       computerUsePackage ? null,
+      bundledSkillsPackage ? null,
       extraConfig ? { },
       extraEnv ? { },
       wrapperName ? "opencode",
@@ -59,7 +73,7 @@ in
     assert !enableComputerUse || computerUsePackage != null;
     let
       runtimeConfig = mkRuntimeConfig {
-        inherit enableComputerUse computerUsePackage extraConfig;
+        inherit enableComputerUse computerUsePackage bundledSkillsPackage extraConfig;
       };
 
       envVars = extraEnv // {

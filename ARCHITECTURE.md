@@ -8,9 +8,12 @@ The wrapper:
 
 - exports `OPENCODE_CONFIG_CONTENT`
 - preserves the checked-in `opencode.json`
+- adds bundled opencode skill paths from the installed package
 - adds the remote `context7` MCP declaratively
 - adds the local `computer-use-mcp` server declaratively
 - prints the Rango extension reminder when computer-use is enabled
+
+Bundled skills live in `nix/skills/` and are packaged to `share/opencode/skills`, which keeps them out of the project-local `.opencode/` tree while still making them available to the wrapped install.
 
 ## Service modules
 
