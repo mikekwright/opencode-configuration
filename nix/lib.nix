@@ -1,164 +1,96 @@
 { lib }:
 let
+  mkEnvExports = envVars:
+    lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg (toString value)}") envVars
+    );
+in
+rec {
   rangoExtensionUrl = "https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb";
 
-  baseRuntimeConfig = {
-    mcp = {
-      context7 = {
-        type = "remote";
-        url = "https://mcp.context7.com/mcp";
-        enabled = true;
-      };
-    };
-  };
+  inherit mkEnvExports;
 
-  mkBundledSkillConfig =
+  hasReservedServeArg =
+    args:
+    lib.any (
+      arg:
+      arg == "--hostname"
+      || lib.hasPrefix "--hostname=" arg
+      || arg == "--port"
+      || lib.hasPrefix "--port=" arg
+      || arg == "--mdns"
+    ) args;
+
+  mkServeArgs =
     {
-      bundledSkillsPackage ? null,
+      hostname,
+      port,
+      extraArgs ? [ ],
     }:
-    lib.optionalAttrs (bundledSkillsPackage != null) {
-      skills.paths = [ "${bundledSkillsPackage}/share/opencode/skills" ];
+    [
+      "serve"
+      "--hostname"
+      hostname
+      "--port"
+      (toString port)
+    ]
+    ++ extraArgs;
+
+  mkServiceEnv =
+    {
+      serverUsername ? null,
+    }:
+    lib.optionalAttrs (serverUsername != null) {
+      OPENCODE_SERVER_USERNAME = serverUsername;
     };
 
-  mkComputerUseConfig =
+  mkPasswordAssertion =
     {
-      enableComputerUse ? false,
-      computerUsePackage ? null,
+      hostname,
+      serverPasswordFile,
+      extraEnv,
+      message,
     }:
-    lib.optionalAttrs enableComputerUse {
-      mcp = {
-        computer-use = {
-          type = "local";
-          command = [ "${lib.getExe computerUsePackage}" ];
-          enabled = true;
-        };
-      };
+    {
+      assertion =
+        hostname != "0.0.0.0"
+        || serverPasswordFile != null
+        || extraEnv ? OPENCODE_SERVER_PASSWORD;
+      inherit message;
     };
 
-  mkRuntimeConfig =
+  mkReservedServeArgsAssertion =
     {
-      enableComputerUse ? false,
-      computerUsePackage ? null,
-      bundledSkillsPackage ? null,
-      extraConfig ? { },
+      extraArgs,
+      message,
     }:
-    lib.recursiveUpdate
-      (lib.recursiveUpdate
-        (lib.recursiveUpdate
-          baseRuntimeConfig
-          (mkBundledSkillConfig {
-            inherit bundledSkillsPackage;
-          }))
-        (mkComputerUseConfig {
-          inherit enableComputerUse computerUsePackage;
-        }))
-      extraConfig;
-in
-{
-  inherit rangoExtensionUrl;
+    {
+      assertion = !(hasReservedServeArg extraArgs);
+      inherit message;
+    };
 
-  inherit mkRuntimeConfig;
-
-  mkOpencodePackage =
+  mkServiceLauncher =
     {
       pkgs,
-      opencodePackage ? pkgs.opencode,
-      enableComputerUse ? false,
-      computerUsePackage ? null,
-      bundledSkillsPackage ? null,
+      package,
+      args,
+      env ? { },
       serverPasswordFile ? null,
-      serverUsername ? null,
-      extraConfig ? { },
-      extraEnv ? { },
-      wrapperName ? "opencode",
+      name ? "opencode-service",
     }:
-    assert !enableComputerUse || computerUsePackage != null;
-    let
-      runtimeConfig = mkRuntimeConfig {
-        inherit enableComputerUse computerUsePackage bundledSkillsPackage extraConfig;
-      };
+    pkgs.writeShellScript name ''
+      set -eu
 
-      configuredServerHostname = lib.attrByPath [ "server" "hostname" ] "" runtimeConfig;
-      configuredServerMdns = lib.attrByPath [ "server" "mdns" ] false runtimeConfig;
+      ${mkEnvExports env}
 
-      envVars = extraEnv // {
-        OPENCODE_CONFIG_CONTENT = builtins.toJSON runtimeConfig;
-      };
-
-      envExports = lib.concatStringsSep "\n" (
-        lib.mapAttrsToList (
-          name: value: "export ${name}=${lib.escapeShellArg (toString value)}"
-        ) envVars
-      );
-
-      startupNotice = lib.concatStringsSep "\n" (
-        [
-          "computer-use-mcp is enabled. Install the Rango browser extension: ${rangoExtensionUrl}"
-        ]
-        ++ lib.optionals pkgs.stdenv.isLinux [
-          "On Linux, computer-use-mcp requires an interactive X11 session."
-        ]
-      );
-    in
-    pkgs.writeShellApplication {
-      name = wrapperName;
-      runtimeInputs = [ opencodePackage ] ++ lib.optionals enableComputerUse [ computerUsePackage ];
-      text = ''
-        configured_hostname=${lib.escapeShellArg configuredServerHostname}
-        configured_mdns=${if configuredServerMdns then "1" else "0"}
-
-        ${envExports}
-
-        ${lib.optionalString (serverUsername != null) ''
-          export OPENCODE_SERVER_USERNAME=${lib.escapeShellArg serverUsername}
-        ''}
-
-        ${lib.optionalString (serverPasswordFile != null) ''
-          if [ ! -r ${lib.escapeShellArg (toString serverPasswordFile)} ]; then
-            printf '%s\n' ${lib.escapeShellArg "Configured OPENCODE_SERVER_PASSWORD file is not readable: ${toString serverPasswordFile}"} >&2
-            exit 1
-          fi
-          export OPENCODE_SERVER_PASSWORD="$(cat ${lib.escapeShellArg (toString serverPasswordFile)})"
-        ''}
-
-        requested_hostname="$configured_hostname"
-        requested_mdns="$configured_mdns"
-
-        for arg in "$@"; do
-          case "$arg" in
-            --hostname=*)
-              requested_hostname="''${arg#--hostname=}"
-              ;;
-            --mdns)
-              requested_mdns=1
-              ;;
-          esac
-        done
-
-        args=("$@")
-        for ((i = 0; i < ''${#args[@]}; i++)); do
-          case "''${args[$i]}" in
-            --hostname)
-              if (( i + 1 < ''${#args[@]} )); then
-                requested_hostname="''${args[$((i + 1))]}"
-              fi
-              ;;
-          esac
-        done
-
-        if [ "$requested_mdns" = "1" ] && [ -z "$requested_hostname" ]; then
-          requested_hostname="0.0.0.0"
-        fi
-
-        if [ "$requested_hostname" = "0.0.0.0" ] && [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ]; then
-          printf '%s\n' 'Refusing to bind opencode to 0.0.0.0 without a password. Set OPENCODE_SERVER_PASSWORD, or use the services.opencode.serverPasswordFile option.' >&2
+      ${lib.optionalString (serverPasswordFile != null) ''
+        if [ ! -r ${lib.escapeShellArg (toString serverPasswordFile)} ]; then
+          printf '%s\n' ${lib.escapeShellArg "Configured OPENCODE_SERVER_PASSWORD file is not readable: ${toString serverPasswordFile}"} >&2
           exit 1
         fi
+        export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg (toString serverPasswordFile)})"
+      ''}
 
-        ${lib.optionalString enableComputerUse ''
-          printf '%s\n' ${lib.escapeShellArg startupNotice} >&2
-        ''}
-        exec ${lib.getExe opencodePackage} "$@"
-      '';
-    };
+      exec ${lib.getExe package} ${lib.escapeShellArgs args}
+    '';
 }

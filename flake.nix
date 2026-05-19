@@ -11,7 +11,13 @@
     };
   };
 
-  outputs = inputs@{ self, nixpkgs, home-manager, ... }:
+  outputs =
+    inputs@{
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }:
     let
       inherit (nixpkgs) lib;
 
@@ -24,12 +30,13 @@
 
       forAllSystems = lib.genAttrs systems;
 
-      mkPkgs = system:
+      mkPkgs =
+        system:
         import nixpkgs {
           inherit system;
         };
 
-      helpers = import ./nix/lib.nix { inherit lib; };
+      mkOpencodePackage = import ./nix/opencode.nix { inherit lib; };
 
       homeManagerModule = import ./nix/modules/home-manager.nix {
         inherit self;
@@ -39,30 +46,37 @@
         inherit self;
       };
 
-      mkComputerUsePackage = pkgs:
-        pkgs.callPackage ./nix/packages/computer-use-mcp.nix { };
+      mkComputerUsePackage = pkgs: pkgs.callPackage ./nix/packages/computer-use-mcp.nix { };
 
-      mkBundledSkillsPackage = pkgs:
-        pkgs.callPackage ./nix/packages/opencode-skills.nix { };
+      mkBundledSkillsPackage = pkgs: pkgs.callPackage ./nix/packages/opencode-skills.nix { };
 
-      mkDefaultPackage = pkgs:
+      mkDefaultPackage =
+        pkgs:
         let
           computerUsePackage = mkComputerUsePackage pkgs;
           bundledSkillsPackage = mkBundledSkillsPackage pkgs;
         in
-        helpers.mkOpencodePackage {
-          inherit pkgs computerUsePackage bundledSkillsPackage;
-          enableComputerUse = pkgs.stdenv.isDarwin || pkgs.stdenv.isLinux;
+        mkOpencodePackage {
+          inherit pkgs;
+          opencodePackage = pkgs.opencode;
+          mcp = {
+            enable = true;
+            computerUse = {
+              enable = pkgs.stdenv.isDarwin || pkgs.stdenv.isLinux;
+              package = computerUsePackage;
+            };
+          };
+          skills = {
+            enable = true;
+            package = bundledSkillsPackage;
+          };
           wrapperName = "opencode";
         };
 
-      mkHomeManagerCheck = pkgs:
+      mkHomeManagerCheck =
+        pkgs:
         let
-          homeDirectory =
-            if pkgs.stdenv.isDarwin then
-              "/Users/opencode"
-            else
-              "/home/opencode";
+          homeDirectory = if pkgs.stdenv.isDarwin then "/Users/opencode" else "/home/opencode";
 
           hmConfig = home-manager.lib.homeManagerConfiguration {
             inherit pkgs;
@@ -83,7 +97,8 @@
         in
         hmConfig.activationPackage;
 
-      mkNixosCheck = pkgs:
+      mkNixosCheck =
+        pkgs:
         let
           nixosConfig = lib.nixosSystem {
             system = pkgs.stdenv.hostPlatform.system;
@@ -111,7 +126,7 @@
         in
         {
           default = defaultPackage;
-          opencode = pkgs.opencode;
+          opencode = defaultPackage;
           computer-use-mcp = computerUsePackage;
           opencode-skills = bundledSkillsPackage;
         }
@@ -148,7 +163,7 @@
               pkgs.deadnix
               pkgs.nixfmt
               pkgs.nodejs
-              pkgs.opencode
+              self.packages.${system}.opencode
               pkgs.statix
               self.packages.${system}.computer-use-mcp
             ];

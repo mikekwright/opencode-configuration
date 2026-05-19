@@ -7,46 +7,42 @@
 }:
 let
   helpers = import ../lib.nix { inherit lib; };
+  mkOpencodePackage = import ../opencode.nix { inherit lib; };
+  darwinSystem = import ./system/darwin.nix { inherit helpers pkgs; };
+  linuxSystem = import ./system/linux.nix { inherit lib helpers pkgs; };
   cfg = config.services.opencode;
 
-  interactivePackage = helpers.mkOpencodePackage {
-    inherit pkgs;
-    opencodePackage = cfg.package;
-    enableComputerUse = cfg.mcp.computerUse.enable;
-    computerUsePackage = cfg.mcp.computerUse.package;
-    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
-    serverPasswordFile = cfg.serverPasswordFile;
-    serverUsername = cfg.serverUsername;
-    extraConfig = cfg.extraConfig;
-    extraEnv = cfg.extraEnv;
-    wrapperName = "opencode";
-  };
+  defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
 
-  servicePackage = helpers.mkOpencodePackage {
+  baseOpencodePackage =
+    if lib.attrByPath [ "passthru" "isWrappedOpencode" ] false cfg.package then
+      lib.attrByPath [ "passthru" "unwrappedOpencode" ] cfg.package cfg.package
+    else
+      cfg.package;
+
+  packageExtraEnv = builtins.removeAttrs cfg.extraEnv (
+    lib.optional (cfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
+    ++ lib.optional (cfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
+  );
+
+  managedPackage = mkOpencodePackage {
     inherit pkgs;
-    opencodePackage = cfg.package;
-    enableComputerUse = cfg.mcp.computerUse.enable;
-    computerUsePackage = cfg.mcp.computerUse.package;
-    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
-    serverPasswordFile = cfg.serverPasswordFile;
-    serverUsername = cfg.serverUsername;
-    extraConfig = lib.recursiveUpdate cfg.extraConfig {
-      server = {
-        hostname = cfg.web.hostname;
-        port = cfg.web.port;
+    opencodePackage = baseOpencodePackage;
+    mcp = {
+      enable = cfg.mcp.enable;
+      computerUse = {
+        enable = cfg.mcp.computerUse.enable;
+        package = cfg.mcp.computerUse.package;
       };
     };
-    extraEnv = cfg.extraEnv;
-    wrapperName = "opencode-service";
+    skills = {
+      enable = cfg.skills.enable;
+      package = cfg.skills.package;
+    };
+    extraConfig = cfg.extraConfig;
+    extraEnv = packageExtraEnv;
+    wrapperName = "opencode";
   };
-
-  linuxServiceCommand = lib.escapeShellArgs (
-    [
-      "${lib.getExe servicePackage}"
-      "serve"
-    ]
-    ++ cfg.web.extraArgs
-  );
 in
 {
   imports = [
@@ -58,8 +54,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
-      description = "Base opencode package to wrap.";
+      default = defaultPackage;
+      description = "Opencode package to use. Wrapped opencode packages from this flake are unwrapped and rebuilt with the module configuration.";
     };
 
     extraConfig = lib.mkOption {
@@ -86,17 +82,39 @@ in
       description = "Optional username for HTTP basic auth. Defaults to opencode when unset.";
     };
 
-    mcp.computerUse = {
+    mcp = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = pkgs.stdenv.isDarwin;
-        description = "Enable the packaged computer-use-mcp server.";
+        default = true;
+        description = "Enable configured MCP integrations.";
+      };
+
+      computerUse = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = pkgs.stdenv.isDarwin;
+          description = "Enable the packaged computer-use-mcp server.";
+        };
+
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.computer-use-mcp;
+          description = "computer-use-mcp package to expose to opencode.";
+        };
+      };
+    };
+
+    skills = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Enable bundled opencode skills.";
       };
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.computer-use-mcp;
-        description = "computer-use-mcp package to expose to opencode.";
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
+        description = "Bundled opencode skills package to expose to opencode.";
       };
     };
 
@@ -139,58 +157,47 @@ in
     lib.mkMerge [
       {
         assertions = [
-          {
-            assertion =
-              !(cfg.web.enable && cfg.web.hostname == "0.0.0.0")
-              || cfg.serverPasswordFile != null
-              || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
+          (helpers.mkPasswordAssertion {
+            hostname = if cfg.web.enable then cfg.web.hostname else "127.0.0.1";
+            serverPasswordFile = cfg.serverPasswordFile;
+            extraEnv = cfg.extraEnv;
             message = "services.opencode.web.hostname = \"0.0.0.0\" requires a password. Set services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
-          }
+          })
+          (helpers.mkReservedServeArgsAssertion {
+            extraArgs = cfg.web.extraArgs;
+            message = "services.opencode.web.extraArgs must not override hostname, port, or mdns. Use services.opencode.web.hostname and services.opencode.web.port instead.";
+          })
         ];
 
-        home.packages = [ interactivePackage ];
+        home.packages = [ managedPackage ];
 
-        warnings = lib.optional (cfg.mcp.computerUse.enable && pkgs.stdenv.isLinux) ''
+        warnings = lib.optional (cfg.mcp.enable && cfg.mcp.computerUse.enable && pkgs.stdenv.isLinux) ''
           services.opencode on Linux requires an interactive X11 session for computer-use-mcp and the Rango browser extension:
           ${helpers.rangoExtensionUrl}
         '';
       }
 
-      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) {
-        launchd.agents.opencode = {
-          enable = true;
-          config = {
-            Label = "ai.opencode";
-            ProgramArguments = [
-              "${lib.getExe servicePackage}"
-              "serve"
-            ]
-            ++ cfg.web.extraArgs;
-            RunAtLoad = cfg.web.autoStart;
-            KeepAlive = cfg.web.autoStart;
-            WorkingDirectory = cfg.web.workingDirectory;
-          };
-        };
-      })
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) (darwinSystem.mkHomeManagerService {
+        package = managedPackage;
+        hostname = cfg.web.hostname;
+        port = cfg.web.port;
+        extraArgs = cfg.web.extraArgs;
+        workingDirectory = cfg.web.workingDirectory;
+        autoStart = cfg.web.autoStart;
+        serverUsername = cfg.serverUsername;
+        serverPasswordFile = cfg.serverPasswordFile;
+      }))
 
-      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isLinux) {
-        systemd.user.services.opencode = {
-          Unit = {
-            Description = "OpenCode user service";
-            After = [ "network.target" ];
-          };
-
-          Service = {
-            ExecStart = linuxServiceCommand;
-            WorkingDirectory = cfg.web.workingDirectory;
-            Restart = "on-failure";
-          };
-
-          Install = lib.mkIf cfg.web.autoStart {
-            WantedBy = [ "default.target" ];
-          };
-        };
-      })
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isLinux) (linuxSystem.mkHomeManagerService {
+        package = managedPackage;
+        hostname = cfg.web.hostname;
+        port = cfg.web.port;
+        extraArgs = cfg.web.extraArgs;
+        workingDirectory = cfg.web.workingDirectory;
+        autoStart = cfg.web.autoStart;
+        serverUsername = cfg.serverUsername;
+        serverPasswordFile = cfg.serverPasswordFile;
+      }))
     ]
   );
 }

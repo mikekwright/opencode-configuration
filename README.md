@@ -19,22 +19,25 @@ nix develop
 Start the web UI locally:
 
 ```bash
-nix run . -- web
+nix run . -- serve
 ```
 
 Expose the web UI on your network with a password:
 
 ```bash
-OPENCODE_SERVER_PASSWORD=secret nix run . -- web --hostname 0.0.0.0 --port 4096
+OPENCODE_SERVER_PASSWORD=secret nix run . -- serve --hostname 0.0.0.0 --port 4096
 ```
 
 ## Flake outputs
 
 - `packages.<system>.default` – wrapped `opencode`
+- `packages.<system>.opencode` – wrapped interactive `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
 - `packages.<system>.opencode-skills` – bundled opencode skills package
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
 - `nixosModules.default` – NixOS module for a headless Linux service
+
+Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments.
 
 ## Bundled runtime additions
 
@@ -77,6 +80,19 @@ Passwords can be supplied either way:
 If both are set, `serverPasswordFile` wins.
 
 For secrets, prefer `serverPasswordFile` over putting the secret directly into `extraEnv`.
+
+## Feature toggles
+
+MCPs and bundled skills are enabled by default.
+
+```nix
+{
+  services.opencode = {
+    mcp.enable = false;
+    skills.enable = false;
+  };
+}
+```
 
 ## Password sources
 
@@ -176,7 +192,7 @@ If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fai
 }
 ```
 
-The NixOS service runs `opencode serve` and leaves `computer-use-mcp` disabled by default.
+The NixOS service runs `opencode serve` through the wrapped package and leaves `computer-use-mcp` disabled by default.
 
 ### NixOS: network-accessible service with password file
 

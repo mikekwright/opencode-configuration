@@ -7,46 +7,41 @@
 }:
 let
   helpers = import ../lib.nix { inherit lib; };
+  mkOpencodePackage = import ../opencode.nix { inherit lib; };
+  linuxSystem = import ./system/linux.nix { inherit lib helpers pkgs; };
   cfg = config.services.opencode;
 
-  interactivePackage = helpers.mkOpencodePackage {
-    inherit pkgs;
-    opencodePackage = cfg.package;
-    enableComputerUse = cfg.mcp.computerUse.enable;
-    computerUsePackage = cfg.mcp.computerUse.package;
-    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
-    serverPasswordFile = cfg.serverPasswordFile;
-    serverUsername = cfg.serverUsername;
-    extraConfig = cfg.extraConfig;
-    extraEnv = cfg.extraEnv;
-    wrapperName = "opencode";
-  };
+  defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
 
-  servicePackage = helpers.mkOpencodePackage {
+  baseOpencodePackage =
+    if lib.attrByPath [ "passthru" "isWrappedOpencode" ] false cfg.package then
+      lib.attrByPath [ "passthru" "unwrappedOpencode" ] cfg.package cfg.package
+    else
+      cfg.package;
+
+  packageExtraEnv = builtins.removeAttrs cfg.extraEnv (
+    lib.optional (cfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
+    ++ lib.optional (cfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
+  );
+
+  managedPackage = mkOpencodePackage {
     inherit pkgs;
-    opencodePackage = cfg.package;
-    enableComputerUse = cfg.mcp.computerUse.enable;
-    computerUsePackage = cfg.mcp.computerUse.package;
-    bundledSkillsPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
-    serverPasswordFile = cfg.serverPasswordFile;
-    serverUsername = cfg.serverUsername;
-    extraConfig = lib.recursiveUpdate cfg.extraConfig {
-      server = {
-        hostname = cfg.hostname;
-        port = cfg.port;
+    opencodePackage = baseOpencodePackage;
+    mcp = {
+      enable = cfg.mcp.enable;
+      computerUse = {
+        enable = cfg.mcp.computerUse.enable;
+        package = cfg.mcp.computerUse.package;
       };
     };
-    extraEnv = cfg.extraEnv;
-    wrapperName = "opencode-service";
+    skills = {
+      enable = cfg.skills.enable;
+      package = cfg.skills.package;
+    };
+    extraConfig = cfg.extraConfig;
+    extraEnv = packageExtraEnv;
+    wrapperName = "opencode";
   };
-
-  serviceCommand = lib.escapeShellArgs (
-    [
-      "${lib.getExe servicePackage}"
-      "serve"
-    ]
-    ++ cfg.extraArgs
-  );
 in
 {
   options.services.opencode = {
@@ -54,8 +49,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
-      description = "Base opencode package to wrap.";
+      default = defaultPackage;
+      description = "Opencode package to use. Wrapped opencode packages from this flake are unwrapped and rebuilt with the module configuration.";
     };
 
     user = lib.mkOption {
@@ -118,17 +113,39 @@ in
       description = "Optional username for HTTP basic auth. Defaults to opencode when unset.";
     };
 
-    mcp.computerUse = {
+    mcp = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = false;
-        description = "Enable computer-use-mcp for the service wrapper.";
+        default = true;
+        description = "Enable configured MCP integrations.";
+      };
+
+      computerUse = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = "Enable the packaged computer-use-mcp server.";
+        };
+
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.computer-use-mcp;
+          description = "computer-use-mcp package to expose to opencode.";
+        };
+      };
+    };
+
+    skills = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Enable bundled opencode skills.";
       };
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.computer-use-mcp;
-        description = "computer-use-mcp package to expose to opencode.";
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
+        description = "Bundled opencode skills package to expose to opencode.";
       };
     };
   };
@@ -139,21 +156,24 @@ in
         assertion = cfg.user != "root";
         message = "services.opencode must not run as root.";
       }
-      {
-        assertion =
-          cfg.hostname != "0.0.0.0"
-          || cfg.serverPasswordFile != null
-          || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
+      (helpers.mkPasswordAssertion {
+        hostname = cfg.hostname;
+        serverPasswordFile = cfg.serverPasswordFile;
+        extraEnv = cfg.extraEnv;
         message = "services.opencode.hostname = \"0.0.0.0\" requires a password. Set services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
-      }
+      })
+      (helpers.mkReservedServeArgsAssertion {
+        extraArgs = cfg.extraArgs;
+        message = "services.opencode.extraArgs must not override hostname, port, or mdns. Use services.opencode.hostname and services.opencode.port instead.";
+      })
     ];
 
-    warnings = lib.optional cfg.mcp.computerUse.enable ''
+    warnings = lib.optional (cfg.mcp.enable && cfg.mcp.computerUse.enable) ''
       computer-use-mcp is desktop-oriented. On Linux it requires an interactive X11 session and the Rango browser extension:
       ${helpers.rangoExtensionUrl}
     '';
 
-    environment.systemPackages = [ interactivePackage ];
+    environment.systemPackages = [ managedPackage ];
 
     users.groups = lib.optionalAttrs (cfg.group == "opencode") {
       ${cfg.group} = { };
@@ -172,19 +192,16 @@ in
       "d ${cfg.workingDirectory} 0750 ${cfg.user} ${cfg.group} -"
     ];
 
-    systemd.services.opencode = {
-      description = "OpenCode headless service";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" ];
-
-      serviceConfig = {
-        Type = "simple";
-        User = cfg.user;
-        Group = cfg.group;
-        WorkingDirectory = cfg.workingDirectory;
-        ExecStart = serviceCommand;
-        Restart = "on-failure";
-      };
-    };
+    systemd.services = (linuxSystem.mkNixosService {
+      package = managedPackage;
+      hostname = cfg.hostname;
+      port = cfg.port;
+      extraArgs = cfg.extraArgs;
+      workingDirectory = cfg.workingDirectory;
+      user = cfg.user;
+      group = cfg.group;
+      serverUsername = cfg.serverUsername;
+      serverPasswordFile = cfg.serverPasswordFile;
+    }).systemd.services;
   };
 }
