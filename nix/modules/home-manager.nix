@@ -34,10 +34,19 @@ let
         enable = cfg.mcp.computerUse.enable;
         package = cfg.mcp.computerUse.package;
       };
+      openPencil = {
+        enable = cfg.mcp.openPencil.enable;
+        package = cfg.mcp.openPencil.package;
+        root = cfg.mcp.openPencil.root;
+      };
     };
     skills = {
       enable = cfg.skills.enable;
       package = cfg.skills.package;
+      openPencil = {
+        enable = cfg.skills.openPencil.enable;
+        package = cfg.skills.openPencil.package;
+      };
     };
     extraConfig = cfg.extraConfig;
     extraEnv = packageExtraEnv;
@@ -102,6 +111,26 @@ in
           description = "computer-use-mcp package to expose to opencode.";
         };
       };
+
+      openPencil = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable the packaged OpenPencil MCP server.";
+        };
+
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.open-pencil-mcp;
+          description = "OpenPencil MCP package to expose to opencode.";
+        };
+
+        root = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = "${config.home.homeDirectory}/Development/designs";
+          description = "Optional OPENPENCIL_MCP_ROOT path scoped into the local MCP environment.";
+        };
+      };
     };
 
     skills = {
@@ -115,6 +144,20 @@ in
         type = lib.types.package;
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-skills;
         description = "Bundled opencode skills package to expose to opencode.";
+      };
+
+      openPencil = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable the upstream OpenPencil skill package.";
+        };
+
+        package = lib.mkOption {
+          type = lib.types.package;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.open-pencil-skill;
+          description = "OpenPencil skill package to expose to opencode.";
+        };
       };
     };
 
@@ -177,27 +220,31 @@ in
         '';
       }
 
-      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) (darwinSystem.mkHomeManagerService {
-        package = managedPackage;
-        hostname = cfg.web.hostname;
-        port = cfg.web.port;
-        extraArgs = cfg.web.extraArgs;
-        workingDirectory = cfg.web.workingDirectory;
-        autoStart = cfg.web.autoStart;
-        serverUsername = cfg.serverUsername;
-        serverPasswordFile = cfg.serverPasswordFile;
-      }))
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) (
+        darwinSystem.mkHomeManagerService {
+          package = managedPackage;
+          hostname = cfg.web.hostname;
+          port = cfg.web.port;
+          extraArgs = cfg.web.extraArgs;
+          workingDirectory = cfg.web.workingDirectory;
+          autoStart = cfg.web.autoStart;
+          serverUsername = cfg.serverUsername;
+          serverPasswordFile = cfg.serverPasswordFile;
+        }
+      ))
 
-      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isLinux) (linuxSystem.mkHomeManagerService {
-        package = managedPackage;
-        hostname = cfg.web.hostname;
-        port = cfg.web.port;
-        extraArgs = cfg.web.extraArgs;
-        workingDirectory = cfg.web.workingDirectory;
-        autoStart = cfg.web.autoStart;
-        serverUsername = cfg.serverUsername;
-        serverPasswordFile = cfg.serverPasswordFile;
-      }))
+      (lib.mkIf (cfg.web.enable && pkgs.stdenv.isLinux) (
+        linuxSystem.mkHomeManagerService {
+          package = managedPackage;
+          hostname = cfg.web.hostname;
+          port = cfg.web.port;
+          extraArgs = cfg.web.extraArgs;
+          workingDirectory = cfg.web.workingDirectory;
+          autoStart = cfg.web.autoStart;
+          serverUsername = cfg.serverUsername;
+          serverPasswordFile = cfg.serverPasswordFile;
+        }
+      ))
     ]
   );
 }

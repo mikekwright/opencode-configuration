@@ -33,7 +33,9 @@ OPENCODE_SERVER_PASSWORD=secret nix run . -- serve --hostname 0.0.0.0 --port 409
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.opencode` – wrapped interactive `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
+- `packages.<system>.open-pencil-mcp` – packaged OpenPencil MCP server
 - `packages.<system>.opencode-skills` – bundled opencode skills package
+- `packages.<system>.open-pencil-skill` – upstream OpenPencil skill package
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
 - `nixosModules.default` – NixOS module for a headless Linux service
 
@@ -45,6 +47,7 @@ Home Manager and NixOS services run the wrapped `opencode` package directly with
 - `computer-use-mcp` is available as a local packaged MCP
 - bundled skills are installed from `$out/share/opencode/skills`
 - the initial bundled skill is `devenv-2`
+- `open-pencil-mcp` and the upstream `open-pencil` skill are enabled by default
 
 ## Adding future bundled skills
 
@@ -83,7 +86,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 
 ## Feature toggles
 
-MCPs and bundled skills are enabled by default.
+`computer-use-mcp` keeps its existing defaults. OpenPencil is enabled by default for both the MCP and skill, and can still be disabled independently.
 
 ```nix
 {
@@ -93,6 +96,45 @@ MCPs and bundled skills are enabled by default.
   };
 }
 ```
+
+### Enable OpenPencil MCP only
+
+```nix
+{
+  services.opencode.mcp.openPencil = {
+    enable = true;
+    root = "/Users/michael/designs";
+  };
+}
+```
+
+Home Manager defaults `services.opencode.mcp.openPencil.root` to `${config.home.homeDirectory}/Development/designs`.
+NixOS defaults it to `/home/mikewright/Development/designs`.
+
+### Enable OpenPencil skill only
+
+```nix
+{
+  services.opencode.skills.openPencil.enable = true;
+}
+```
+
+### Enable both OpenPencil additions
+
+```nix
+{
+  services.opencode = {
+    mcp.openPencil = {
+      enable = true;
+      root = "/Users/michael/designs";
+    };
+
+    skills.openPencil.enable = true;
+  };
+}
+```
+
+When `services.opencode.mcp.openPencil.root` is set, the wrapper passes it to the local MCP as `OPENPENCIL_MCP_ROOT` via the MCP `environment` field instead of wrapping the executable.
 
 ## Password sources
 
