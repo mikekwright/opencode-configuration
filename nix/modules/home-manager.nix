@@ -36,8 +36,7 @@ let
       };
       openPencil = {
         enable = cfg.mcp.openPencil.enable;
-        package = cfg.mcp.openPencil.package;
-        root = cfg.mcp.openPencil.root;
+        url = cfg.mcp.openPencil.url;
       };
     };
     skills = {
@@ -116,19 +115,25 @@ in
         enable = lib.mkOption {
           type = lib.types.bool;
           default = true;
-          description = "Enable the packaged OpenPencil MCP server.";
+          description = "Enable the ZSeven-W OpenPencil MCP connection.";
+        };
+
+        url = lib.mkOption {
+          type = lib.types.str;
+          default = "http://127.0.0.1:3100/mcp";
+          description = "URL for the ZSeven-W OpenPencil MCP server exposed by a running desktop or web instance.";
         };
 
         package = lib.mkOption {
-          type = lib.types.package;
-          default = self.packages.${pkgs.stdenv.hostPlatform.system}.open-pencil-mcp;
-          description = "OpenPencil MCP package to expose to opencode.";
+          type = lib.types.nullOr lib.types.package;
+          default = null;
+          description = "Deprecated and ignored. ZSeven-W/openpencil exposes MCP over HTTP; use services.opencode.mcp.openPencil.url instead.";
         };
 
         root = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
-          default = "${config.home.homeDirectory}/Development/designs";
-          description = "Optional OPENPENCIL_MCP_ROOT path scoped into the local MCP environment.";
+          default = null;
+          description = "Deprecated and ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.";
         };
       };
     };
@@ -150,7 +155,7 @@ in
         enable = lib.mkOption {
           type = lib.types.bool;
           default = true;
-          description = "Enable the upstream OpenPencil skill package.";
+          description = "Enable the ZSeven-W OpenPencil skill package.";
         };
 
         package = lib.mkOption {
@@ -214,10 +219,17 @@ in
 
         home.packages = [ managedPackage ];
 
-        warnings = lib.optional (cfg.mcp.enable && cfg.mcp.computerUse.enable && pkgs.stdenv.isLinux) ''
-          services.opencode on Linux requires an interactive X11 session for computer-use-mcp and the Rango browser extension:
-          ${helpers.rangoExtensionUrl}
-        '';
+        warnings =
+          lib.optional (cfg.mcp.enable && cfg.mcp.computerUse.enable && pkgs.stdenv.isLinux) ''
+            services.opencode on Linux requires an interactive X11 session for computer-use-mcp and the Rango browser extension:
+            ${helpers.rangoExtensionUrl}
+          ''
+          ++ lib.optional (cfg.mcp.enable && cfg.mcp.openPencil.package != null) ''
+            services.opencode.mcp.openPencil.package is ignored. ZSeven-W/openpencil exposes MCP over HTTP from a running instance; use services.opencode.mcp.openPencil.url instead.
+          ''
+          ++ lib.optional (cfg.mcp.enable && cfg.mcp.openPencil.root != null) ''
+            services.opencode.mcp.openPencil.root is ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.
+          '';
       }
 
       (lib.mkIf (cfg.web.enable && pkgs.stdenv.isDarwin) (

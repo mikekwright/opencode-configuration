@@ -9,11 +9,10 @@ let
   enableComputerUse = lib.attrByPath [ "enable" ] false computerUse;
   computerUsePackage = lib.attrByPath [ "package" ] null computerUse;
   enableOpenPencil = lib.attrByPath [ "enable" ] false openPencil;
-  openPencilPackage = lib.attrByPath [ "package" ] null openPencil;
-  openPencilRoot = lib.attrByPath [ "root" ] null openPencil;
+  openPencilUrl = lib.attrByPath [ "url" ] null openPencil;
 in
 assert !enableComputerUse || computerUsePackage != null;
-assert !enableOpenPencil || openPencilPackage != null;
+assert !enableOpenPencil || openPencilUrl != null;
 lib.optionalAttrs enable {
   mcp =
     lib.optionalAttrs enableContext7 {
@@ -32,12 +31,9 @@ lib.optionalAttrs enable {
     }
     // lib.optionalAttrs enableOpenPencil {
       open-pencil = {
-        type = "local";
-        command = [ "${lib.getExe openPencilPackage}" ];
+        type = "remote";
+        url = openPencilUrl;
         enabled = true;
-      }
-      // lib.optionalAttrs (openPencilRoot != null) {
-        environment.OPENPENCIL_MCP_ROOT = toString openPencilRoot;
       };
     };
 }

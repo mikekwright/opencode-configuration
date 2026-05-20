@@ -28,14 +28,22 @@ Expose the web UI on your network with a password:
 OPENCODE_SERVER_PASSWORD=secret nix run . -- serve --hostname 0.0.0.0 --port 4096
 ```
 
+## Two OpenPencil projects
+
+There are two different projects named OpenPencil, and both GitHub landing pages call out the name collision.
+
+- [`open-pencil/open-pencil`](https://github.com/open-pencil/open-pencil) presents itself as a Figma-compatible visual design editor focused on `.fig` and `.pen` files, real-time collaboration, a standalone `@open-pencil/mcp` package, and the separate `open-pencil/skills` repository.
+- [`ZSeven-W/openpencil`](https://github.com/ZSeven-W/openpencil) presents itself as an AI-native vector design tool focused on `.op` files, the `op` CLI, concurrent agent teams, a built-in MCP server exposed by the running app, and the separate `ZSeven-W/openpencil-skill` repository.
+
+This flake now targets `ZSeven-W/openpencil`.
+
 ## Flake outputs
 
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.opencode` – wrapped interactive `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
-- `packages.<system>.open-pencil-mcp` – packaged OpenPencil MCP server
 - `packages.<system>.opencode-skills` – bundled opencode skills package
-- `packages.<system>.open-pencil-skill` – upstream OpenPencil skill package
+- `packages.<system>.open-pencil-skill` – bundled `ZSeven-W/openpencil-skill` package
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
 - `nixosModules.default` – NixOS module for a headless Linux service
 
@@ -47,7 +55,10 @@ Home Manager and NixOS services run the wrapped `opencode` package directly with
 - `computer-use-mcp` is available as a local packaged MCP
 - bundled skills are installed from `$out/share/opencode/skills`
 - the initial bundled skill is `devenv-2`
-- `open-pencil-mcp` and the upstream `open-pencil` skill are enabled by default
+- OpenPencil is enabled by default as a remote MCP at `http://127.0.0.1:3100/mcp`
+- the optional OpenPencil skill comes from `ZSeven-W/openpencil-skill`
+
+The OpenPencil MCP entry expects a running `ZSeven-W/openpencil` desktop or web instance to expose that endpoint.
 
 ## Adding future bundled skills
 
@@ -86,7 +97,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 
 ## Feature toggles
 
-`computer-use-mcp` keeps its existing defaults. OpenPencil is enabled by default for both the MCP and skill, and can still be disabled independently.
+`computer-use-mcp` keeps its existing defaults. OpenPencil is enabled by default for both the MCP connection and skill, and can still be disabled independently.
 
 ```nix
 {
@@ -103,13 +114,13 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 {
   services.opencode.mcp.openPencil = {
     enable = true;
-    root = "/Users/michael/designs";
+    url = "http://127.0.0.1:3100/mcp";
   };
 }
 ```
 
-Home Manager defaults `services.opencode.mcp.openPencil.root` to `${config.home.homeDirectory}/Development/designs`.
-NixOS defaults it to `/home/mikewright/Development/designs`.
+The default URL matches the MCP endpoint that `ZSeven-W/openpencil` exposes from a running desktop or web instance.
+`services.opencode.mcp.openPencil.package` and `services.opencode.mcp.openPencil.root` are now deprecated and ignored.
 
 ### Enable OpenPencil skill only
 
@@ -119,6 +130,8 @@ NixOS defaults it to `/home/mikewright/Development/designs`.
 }
 ```
 
+The packaged skill teaches opencode about `.op` files, the `op` CLI, and the layered MCP workflow used by `ZSeven-W/openpencil`.
+
 ### Enable both OpenPencil additions
 
 ```nix
@@ -126,15 +139,13 @@ NixOS defaults it to `/home/mikewright/Development/designs`.
   services.opencode = {
     mcp.openPencil = {
       enable = true;
-      root = "/Users/michael/designs";
+      url = "http://127.0.0.1:3100/mcp";
     };
 
     skills.openPencil.enable = true;
   };
 }
 ```
-
-When `services.opencode.mcp.openPencil.root` is set, the wrapper passes it to the local MCP as `OPENPENCIL_MCP_ROOT` via the MCP `environment` field instead of wrapping the executable.
 
 ## Password sources
 

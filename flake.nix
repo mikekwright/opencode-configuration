@@ -48,26 +48,16 @@
 
       mkComputerUsePackage = pkgs: pkgs.callPackage ./nix/packages/computer-use-mcp.nix { };
 
-      mkOpenPencilMcpPackage = pkgs: pkgs.callPackage ./nix/packages/open-pencil-mcp.nix { };
-
       mkBundledSkillsPackage = pkgs: pkgs.callPackage ./nix/packages/opencode-skills.nix { };
 
       mkOpenPencilSkillPackage = pkgs: pkgs.callPackage ./nix/packages/open-pencil-skill.nix { };
-
-      mkOpenPencilRoot = pkgs:
-        if pkgs.stdenv.isDarwin then
-          "/Users/mikewright/Development/designs"
-        else
-          "/home/mikewright/Development/designs";
 
       mkDefaultPackage =
         pkgs:
         let
           computerUsePackage = mkComputerUsePackage pkgs;
-          openPencilMcpPackage = mkOpenPencilMcpPackage pkgs;
           bundledSkillsPackage = mkBundledSkillsPackage pkgs;
           openPencilSkillPackage = mkOpenPencilSkillPackage pkgs;
-          openPencilRoot = mkOpenPencilRoot pkgs;
         in
         mkOpencodePackage {
           inherit pkgs;
@@ -80,8 +70,7 @@
             };
             openPencil = {
               enable = true;
-              package = openPencilMcpPackage;
-              root = openPencilRoot;
+              url = "http://127.0.0.1:3100/mcp";
             };
           };
           skills = {
@@ -143,7 +132,6 @@
         let
           pkgs = mkPkgs system;
           computerUsePackage = mkComputerUsePackage pkgs;
-          openPencilMcpPackage = mkOpenPencilMcpPackage pkgs;
           bundledSkillsPackage = mkBundledSkillsPackage pkgs;
           openPencilSkillPackage = mkOpenPencilSkillPackage pkgs;
           defaultPackage = mkDefaultPackage pkgs;
@@ -152,7 +140,6 @@
           default = defaultPackage;
           opencode = defaultPackage;
           computer-use-mcp = computerUsePackage;
-          open-pencil-mcp = openPencilMcpPackage;
           opencode-skills = bundledSkillsPackage;
           open-pencil-skill = openPencilSkillPackage;
         }
@@ -192,7 +179,6 @@
               self.packages.${system}.opencode
               pkgs.statix
               self.packages.${system}.computer-use-mcp
-              self.packages.${system}.open-pencil-mcp
             ];
           };
         }
@@ -206,7 +192,6 @@
         {
           default = self.packages.${system}.default;
           computer-use-mcp = self.packages.${system}.computer-use-mcp;
-          open-pencil-mcp = self.packages.${system}.open-pencil-mcp;
           opencode-skills = self.packages.${system}.opencode-skills;
           open-pencil-skill = self.packages.${system}.open-pencil-skill;
           home-manager = mkHomeManagerCheck pkgs;
