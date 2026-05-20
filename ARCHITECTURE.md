@@ -7,18 +7,24 @@ The default package is a thin wrapper around `pkgs.opencode`.
 The `opencode` wrapper:
 
 - exports `OPENCODE_CONFIG_CONTENT`
+- exports `OPENCODE_TUI_CONFIG` pointing at a bundled `tui.json`
+- exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
 - preserves standard OpenCode config discovery from global and project locations
+- restores bundled custom agents from `nix/config/agents/` through inline runtime config, keeping the bundled catalog focused on `flake-setup`, `opencode-agent-manager`, and `opencode-manager`
 - adds bundled opencode skill paths from the installed package
 - adds the remote `context7` MCP declaratively
 - adds the local `computer-use-mcp` server declaratively
 - can add the ZSeven-W OpenPencil MCP endpoint declaratively
+- attaches to `OPENCODE_SERVE_URL` with `opencode attach ... --dir "$PWD"` when requested
 - prints the Rango extension reminder when computer-use is enabled
 
-`nix/opencode.nix` builds the wrapper. `nix/config/mcp.nix` and `nix/config/skills.nix` produce the config fragments that the wrapper exports through `OPENCODE_CONFIG_CONTENT`.
+`nix/opencode.nix` builds the wrapper. `nix/config/runtime.nix` restores the old runtime defaults and bundled agent set, `nix/config/tui.nix` restores the bundled TUI keybinds, and `nix/config/mcp.nix` plus `nix/config/skills.nix` produce the MCP and skills fragments that the wrapper exports through `OPENCODE_CONFIG_CONTENT`.
 
 OpenCode merges configuration sources instead of replacing them. The wrapper does not set `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `HOME`, or `XDG_CONFIG_HOME`, so normal discovery still applies for `~/.config/opencode/opencode.json`, project `opencode.json`, and `.opencode/`. The bundled Nix config is added as the inline `OPENCODE_CONFIG_CONTENT` layer, so standard locations are still read, but bundled keys win on conflicts.
 
 Bundled skills live in `nix/skills/` and are packaged to `share/opencode/skills`, which keeps them out of the project-local `.opencode/` tree while still making them available to the wrapped install.
+
+The LM Studio provider config is bundled in `nix/config/runtime.nix` and uses OpenCode variable substitution with `OPENCODE_PLATFORM_TOKEN` instead of a hardcoded secret.
 
 The optional OpenPencil skill is packaged separately from the upstream `ZSeven-W/openpencil-skill` repository and contributes its `skills/` contents under `share/opencode/skills` only when explicitly enabled.
 

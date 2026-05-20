@@ -67,6 +67,10 @@ For services, project-local `opencode.json` and `.opencode/` discovery depends o
 
 ## Bundled runtime additions
 
+- bundled custom agents are generated from `nix/config/agents/` and currently expose the `flake-setup`, `opencode-agent-manager`, and `opencode-manager` families
+- the wrapper exports `OPENCODE_TUI_CONFIG` with bundled `tui.json` keybinds
+- the wrapper exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
+- if `OPENCODE_SERVE_URL` is set, the wrapper runs `opencode attach "$OPENCODE_SERVE_URL" --dir "$PWD"`
 - `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`
 - `computer-use-mcp` is available as a local packaged MCP
 - bundled skills are installed from `$out/share/opencode/skills`
@@ -75,6 +79,8 @@ For services, project-local `opencode.json` and `.opencode/` discovery depends o
 - the optional OpenPencil skill comes from `ZSeven-W/openpencil-skill`
 
 The OpenPencil MCP entry expects a running `ZSeven-W/openpencil` desktop or web instance to expose that endpoint.
+
+The bundled LM Studio provider expects `OPENCODE_PLATFORM_TOKEN` in the environment and passes it through OpenCode's `{env:...}` substitution.
 
 ## Adding future bundled skills
 
@@ -303,3 +309,7 @@ If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
 When `computer-use-mcp` is enabled, the wrapper prints a reminder to install the Rango browser extension:
 
 https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb
+
+# Possible additions
+
+* There is a claude solution that uses a plugin and then anthropic sdk using [Meridian](https://github.com/rynfar/meridian), this is the [opencode-with-claude](https://github.com/ianjwhite99/opencode-with-claude) plugin.  Might add that in the future.

@@ -1,22 +1,22 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "opencode-configuration-manager",
+  "default_agent": "flake-setup",
   "command": {
     "check": {
       "description": "Run Nix validation for this repository",
-      "agent": "opencode-configuration-devops",
+      "agent": "flake-setup-tester",
       "subtask": true,
       "template": "Use Nix-only commands for this repository. Prefer `nix flake check`, then any additional verification available through `nix develop --command ...`, and summarize the results, failures, and next actions."
     },
     "run": {
       "description": "Verify the nix run entrypoint",
-      "agent": "opencode-configuration-devops",
+      "agent": "flake-setup-tester",
       "subtask": true,
       "template": "Use Nix-only commands for this repository. Verify or exercise the runnable app entrypoint with `nix run .` when appropriate, then summarize what launches and any blockers."
     },
     "develop": {
       "description": "Inspect the Nix development shell",
-      "agent": "opencode-configuration-devops",
+      "agent": "flake-setup-tester",
       "subtask": true,
       "template": "Use Nix-only commands for this repository. Inspect or exercise the development environment with `nix develop` or `nix develop --command ...`, then summarize the available tooling, checks, and gaps in the shell setup."
     }

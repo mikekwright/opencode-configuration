@@ -1,7 +1,9 @@
 { lib }:
 let
   buildMcpConfig = import ./config/mcp.nix { inherit lib; };
+  buildRuntimeConfig = import ./config/runtime.nix { inherit lib; };
   buildSkillsConfig = import ./config/skills.nix { inherit lib; };
+  tuiConfig = import ./config/tui.nix;
   rangoExtensionUrl = "https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb";
   mkEnvExports = envVars:
     lib.concatStringsSep "\n" (
@@ -21,14 +23,24 @@ let
   baseOpencodePackage =
     lib.attrByPath [ "passthru" "unwrappedOpencode" ] opencodePackage opencodePackage;
 
+  bundledRuntimeConfig = buildRuntimeConfig;
+
   runtimeConfig =
     lib.recursiveUpdate
-      (lib.recursiveUpdate (buildMcpConfig ({ enable = true; } // mcp)) (buildSkillsConfig ({ enable = true; } // skills)))
-      extraConfig;
+      (lib.recursiveUpdate bundledRuntimeConfig (buildMcpConfig ({ enable = true; } // mcp)))
+      (lib.recursiveUpdate (buildSkillsConfig ({ enable = true; } // skills)) extraConfig);
 
-  envVars = extraEnv // {
-    OPENCODE_CONFIG_CONTENT = builtins.toJSON runtimeConfig;
-  };
+  tuiConfigFile = pkgs.writeText "opencode-tui.json" (builtins.toJSON tuiConfig);
+
+  envVars =
+    {
+      OPENCODE_DISABLE_LSP_DOWNLOAD = "true";
+      OPENCODE_TUI_CONFIG = tuiConfigFile;
+    }
+    // extraEnv
+    // {
+      OPENCODE_CONFIG_CONTENT = builtins.toJSON runtimeConfig;
+    };
 
   computerUseEnabled =
     lib.attrByPath [ "enable" ] true mcp
@@ -45,6 +57,7 @@ let
 in
 pkgs.writeShellApplication {
   name = wrapperName;
+  excludeShellChecks = [ "SC2016" ];
   runtimeInputs = [ baseOpencodePackage ];
   text = ''
     ${mkEnvExports envVars}
@@ -52,6 +65,10 @@ pkgs.writeShellApplication {
     ${lib.optionalString computerUseEnabled ''
       printf '%s\n' ${lib.escapeShellArg startupNotice} >&2
     ''}
+
+    if [ -n "''${OPENCODE_SERVE_URL:-}" ]; then
+      exec ${lib.getExe baseOpencodePackage} attach "$OPENCODE_SERVE_URL" --dir "$PWD" "$@"
+    fi
 
     exec ${lib.getExe baseOpencodePackage} "$@"
   '';
