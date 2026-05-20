@@ -100,7 +100,7 @@ in
     extraConfig = lib.mkOption {
       type = lib.types.attrsOf lib.types.anything;
       default = { };
-      description = "Additional JSON config merged into OPENCODE_CONFIG_CONTENT.";
+      description = "Additional JSON config added to the wrapper's OPENCODE_CONFIG_CONTENT layer after OpenCode loads its standard config locations.";
     };
 
     extraEnv = lib.mkOption {

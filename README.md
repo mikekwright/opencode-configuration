@@ -49,6 +49,22 @@ This flake now targets `ZSeven-W/openpencil`.
 
 Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments.
 
+## Config layering
+
+The wrapper adds the Nix-generated MCP and skills configuration through `OPENCODE_CONFIG_CONTENT`.
+
+OpenCode merges config sources instead of replacing them, so the wrapped package still reads the usual locations as well:
+
+- `~/.config/opencode/opencode.json`
+- `OPENCODE_CONFIG`
+- project `opencode.json`
+- `.opencode/`
+- `OPENCODE_CONFIG_DIR`
+
+The wrapper intentionally does not override `HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG`, or `OPENCODE_CONFIG_DIR`, so bundled config from this flake is layered on top of the standard locations instead of replacing them. Standard locations are still read, but bundled keys win on conflicts because `OPENCODE_CONFIG_CONTENT` loads later.
+
+For services, project-local `opencode.json` and `.opencode/` discovery depends on the configured working directory.
+
 ## Bundled runtime additions
 
 - `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`

@@ -7,14 +7,16 @@ The default package is a thin wrapper around `pkgs.opencode`.
 The `opencode` wrapper:
 
 - exports `OPENCODE_CONFIG_CONTENT`
-- preserves the checked-in `opencode.json`
+- preserves standard OpenCode config discovery from global and project locations
 - adds bundled opencode skill paths from the installed package
 - adds the remote `context7` MCP declaratively
 - adds the local `computer-use-mcp` server declaratively
 - can add the ZSeven-W OpenPencil MCP endpoint declaratively
 - prints the Rango extension reminder when computer-use is enabled
 
-`nix/opencode.nix` builds the wrapper. `nix/config/mcp.nix` and `nix/config/skills.nix` produce the config fragments that the wrapper merges into the final runtime configuration.
+`nix/opencode.nix` builds the wrapper. `nix/config/mcp.nix` and `nix/config/skills.nix` produce the config fragments that the wrapper exports through `OPENCODE_CONFIG_CONTENT`.
+
+OpenCode merges configuration sources instead of replacing them. The wrapper does not set `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `HOME`, or `XDG_CONFIG_HOME`, so normal discovery still applies for `~/.config/opencode/opencode.json`, project `opencode.json`, and `.opencode/`. The bundled Nix config is added as the inline `OPENCODE_CONFIG_CONTENT` layer, so standard locations are still read, but bundled keys win on conflicts.
 
 Bundled skills live in `nix/skills/` and are packaged to `share/opencode/skills`, which keeps them out of the project-local `.opencode/` tree while still making them available to the wrapped install.
 
@@ -24,7 +26,7 @@ The optional OpenPencil skill is packaged separately from the upstream `ZSeven-W
 
 - `nix/modules/system/darwin.nix` contains Darwin launchd behavior
 - `nix/modules/system/linux.nix` contains Linux systemd behavior reused by Home Manager and NixOS
-- Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments
+- Home Manager and NixOS services use a small launcher script that exports service environment, then execs the wrapped `opencode` package with `serve` arguments
 
 ## Platform defaults
 
