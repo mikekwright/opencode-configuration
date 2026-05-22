@@ -10,16 +10,18 @@
       autoStart ? true,
       serverUsername ? null,
       serverPasswordFile ? null,
+      virtualDisplay ? { enable = false; },
     }:
     let
       launcher = helpers.mkServiceLauncher {
-        inherit pkgs package serverPasswordFile;
+        inherit pkgs package serverPasswordFile virtualDisplay;
         name = "opencode-systemd-user";
         args = helpers.mkServeArgs {
           inherit hostname port extraArgs;
         };
         env = helpers.mkServiceEnv {
           inherit serverUsername;
+          display = virtualDisplay.display or null;
         };
       };
     in
@@ -53,16 +55,18 @@
       group,
       serverUsername ? null,
       serverPasswordFile ? null,
+      virtualDisplay ? { enable = false; },
     }:
     let
       launcher = helpers.mkServiceLauncher {
-        inherit pkgs package serverPasswordFile;
+        inherit pkgs package serverPasswordFile virtualDisplay;
         name = "opencode-systemd";
         args = helpers.mkServeArgs {
           inherit hostname port extraArgs;
         };
         env = helpers.mkServiceEnv {
           inherit serverUsername;
+          display = virtualDisplay.display or null;
         };
       };
     in

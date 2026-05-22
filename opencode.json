@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "flake-setup",
+  "default_agent": "opencode-configuration-manager",
   "command": {
     "check": {
       "description": "Run Nix validation for this repository",

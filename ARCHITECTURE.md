@@ -14,7 +14,9 @@ The `opencode` wrapper:
 - adds bundled opencode skill paths from the installed package
 - adds the remote `context7` MCP declaratively
 - adds the local `computer-use-mcp` server declaratively
+- can add `DISPLAY` to the local `computer-use-mcp` runtime config when Linux virtual display support is enabled
 - can add the ZSeven-W OpenPencil MCP endpoint declaratively
+- can add the Banani MCP endpoint declaratively with an API key from `extraEnv.BANANI_API_KEY`
 - attaches to `OPENCODE_SERVE_URL` with `opencode attach ... --dir "$PWD"` when requested
 - prints the Rango extension reminder when computer-use is enabled
 
@@ -33,17 +35,22 @@ The optional OpenPencil skill is packaged separately from the upstream `ZSeven-W
 - `nix/modules/system/darwin.nix` contains Darwin launchd behavior
 - `nix/modules/system/linux.nix` contains Linux systemd behavior reused by Home Manager and NixOS
 - Home Manager and NixOS services use a small launcher script that exports service environment, then execs the wrapped `opencode` package with `serve` arguments
+- on Linux, that launcher can either export an existing X11 `DISPLAY` to `computer-use-mcp` or manage a lightweight Xvfb + Openbox desktop before starting `opencode serve`
+- when the managed Linux desktop flow enables the browser option, the launcher also starts the packaged Chromium-with-Rango wrapper inside that virtual desktop
 
 ## Platform defaults
 
 - `nix run .` enables `computer-use-mcp`
 - `nix run .` enables the ZSeven-W OpenPencil MCP endpoint and skill
-- Home Manager enables `computer-use-mcp` by default on Darwin
-- Home Manager disables it by default on Linux
-- NixOS disables it by default because headless Linux is not a good default for desktop automation
+- Home Manager enables `computer-use-mcp` by default
+- NixOS enables `computer-use-mcp` by default
 - Home Manager enables the ZSeven-W OpenPencil MCP endpoint and skill by default
 - NixOS enables the ZSeven-W OpenPencil MCP endpoint and skill by default
 
 Linux computer use should be treated as a desktop/X11 feature, not a headless server feature.
 
+The Linux virtual desktop path is intentionally lightweight: Xvfb provides the X server, Openbox provides a minimal window manager, and the optional browser wrapper loads an unpacked packaged Rango extension into Chromium. This keeps the change inside the existing wrapper and service-launcher layers instead of pushing desktop orchestration into the application package itself.
+
 When enabled, OpenPencil is configured as a remote MCP at `http://127.0.0.1:3100/mcp`, matching the default endpoint exposed by a running ZSeven-W OpenPencil desktop or web instance. The old standalone `@open-pencil/mcp` packaging and `OPENPENCIL_MCP_ROOT` scoping are no longer used.
+
+When enabled, Banani is configured as a remote MCP entry named `banani` at `https://app.banani.co/api/mcp/mcp` by default. The runtime MCP config sends `Authorization: Bearer {env:BANANI_API_KEY}` and the service modules assert that `extraEnv.BANANI_API_KEY` is present before evaluation succeeds.

@@ -10,8 +10,11 @@ let
   mkOpencodePackage = import ../opencode.nix { inherit lib; };
   linuxSystem = import ./system/linux.nix { inherit lib helpers pkgs; };
   cfg = config.services.opencode;
+  computerUseVirtualDisplay = cfg.mcp.computerUse.virtualDisplay;
+  effectiveComputerUseDisplay = helpers.getVirtualDisplay computerUseVirtualDisplay;
 
   defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
+  defaultBrowserPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.chromium-with-rango;
 
   baseOpencodePackage =
     if lib.attrByPath [ "passthru" "isWrappedOpencode" ] false cfg.package then
@@ -32,10 +35,19 @@ let
       computerUse = {
         enable = cfg.mcp.computerUse.enable;
         package = cfg.mcp.computerUse.package;
+        virtualDisplay = {
+          enable = computerUseVirtualDisplay.enable;
+          fullDesktop = computerUseVirtualDisplay.fullDesktop;
+          display = effectiveComputerUseDisplay;
+        };
       };
       openPencil = {
         enable = cfg.mcp.openPencil.enable;
         url = cfg.mcp.openPencil.url;
+      };
+      banani = {
+        enable = cfg.mcp.banani.enable;
+        url = cfg.mcp.banani.url;
       };
     };
     skills = {
@@ -131,7 +143,7 @@ in
       computerUse = {
         enable = lib.mkOption {
           type = lib.types.bool;
-          default = false;
+          default = true;
           description = "Enable the packaged computer-use-mcp server.";
         };
 
@@ -139,6 +151,40 @@ in
           type = lib.types.package;
           default = self.packages.${pkgs.stdenv.hostPlatform.system}.computer-use-mcp;
           description = "computer-use-mcp package to expose to opencode.";
+        };
+
+        virtualDisplay = {
+          enable = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Enable Linux virtual display support for computer-use-mcp.";
+          };
+
+          fullDesktop = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Manage a lightweight Linux virtual X11 desktop for computer-use-mcp.";
+          };
+
+          display = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "DISPLAY value to export to computer-use-mcp. Defaults to :99 when fullDesktop is enabled and display is unset.";
+          };
+
+          browser = {
+            enable = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = "Launch the configured Chromium-with-Rango browser inside the managed virtual desktop.";
+            };
+
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = defaultBrowserPackage;
+              description = "Browser package to launch for the managed virtual desktop flow.";
+            };
+          };
         };
       };
 
@@ -165,6 +211,20 @@ in
           type = lib.types.nullOr lib.types.str;
           default = null;
           description = "Deprecated and ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.";
+        };
+      };
+
+      banani = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = "Enable the Banani MCP connection.";
+        };
+
+        url = lib.mkOption {
+          type = lib.types.str;
+          default = "https://app.banani.co/api/mcp/mcp";
+          description = "URL for the Banani MCP server.";
         };
       };
     };
@@ -214,11 +274,23 @@ in
         extraArgs = cfg.extraArgs;
         message = "services.opencode.extraArgs must not override hostname, port, or mdns. Use services.opencode.hostname and services.opencode.port instead.";
       })
+      {
+        assertion = !computerUseVirtualDisplay.enable || effectiveComputerUseDisplay != null;
+        message = "services.opencode.mcp.computerUse.virtualDisplay.enable requires virtualDisplay.fullDesktop = true or virtualDisplay.display to be set.";
+      }
+      {
+        assertion = !computerUseVirtualDisplay.browser.enable || (computerUseVirtualDisplay.enable && computerUseVirtualDisplay.fullDesktop);
+        message = "services.opencode.mcp.computerUse.virtualDisplay.browser.enable requires virtualDisplay.enable = true and virtualDisplay.fullDesktop = true.";
+      }
+      {
+        assertion = !(cfg.mcp.enable && cfg.mcp.banani.enable) || cfg.extraEnv ? BANANI_API_KEY;
+        message = "services.opencode.mcp.banani.enable requires extraEnv.BANANI_API_KEY.";
+      }
     ];
 
     warnings =
       lib.optional (cfg.mcp.enable && cfg.mcp.computerUse.enable) ''
-        computer-use-mcp is desktop-oriented. On Linux it requires an interactive X11 session and the Rango browser extension:
+        computer-use-mcp is desktop-oriented. On Linux it needs X11. Set services.opencode.mcp.computerUse.virtualDisplay.display for an existing X11 session or enable services.opencode.mcp.computerUse.virtualDisplay.fullDesktop for a managed Xvfb/openbox desktop. Rango browser extension:
         ${helpers.rangoExtensionUrl}
       ''
       ++ lib.optional (cfg.mcp.enable && cfg.mcp.openPencil.package != null) ''
@@ -258,6 +330,15 @@ in
         group = cfg.group;
         serverUsername = cfg.serverUsername;
         serverPasswordFile = cfg.serverPasswordFile;
+        virtualDisplay = {
+          enable = computerUseVirtualDisplay.enable;
+          fullDesktop = computerUseVirtualDisplay.fullDesktop;
+          display = effectiveComputerUseDisplay;
+          browser = {
+            enable = computerUseVirtualDisplay.browser.enable;
+            package = computerUseVirtualDisplay.browser.package;
+          };
+        };
       }).systemd.services;
   };
 }

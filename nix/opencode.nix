@@ -46,12 +46,23 @@ let
     lib.attrByPath [ "enable" ] true mcp
     && lib.attrByPath [ "computerUse" "enable" ] false mcp;
 
+  virtualDisplayEnabled = lib.attrByPath [ "computerUse" "virtualDisplay" "enable" ] false mcp;
+
+  managedVirtualDisplayEnabled = lib.attrByPath [ "computerUse" "virtualDisplay" "fullDesktop" ] false mcp;
+
   startupNotice = lib.concatStringsSep "\n" (
     [
       "computer-use-mcp is enabled. Install the Rango browser extension: ${rangoExtensionUrl}"
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
-      "On Linux, computer-use-mcp requires an interactive X11 session."
+      (
+        if managedVirtualDisplayEnabled then
+          "On Linux, computer-use-mcp will use the configured managed virtual X11 desktop."
+        else if virtualDisplayEnabled then
+          "On Linux, computer-use-mcp will use the configured X11 DISPLAY."
+        else
+          "On Linux, computer-use-mcp requires an interactive X11 session or services.opencode.mcp.computerUse.virtualDisplay."
+      )
     ]
   );
 in

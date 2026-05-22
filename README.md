@@ -42,6 +42,8 @@ This flake now targets `ZSeven-W/openpencil`.
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.opencode` – wrapped interactive `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
+- `packages.<system>.rango-extension` – packaged unpacked Rango extension bundle
+- `packages.<system>.chromium-with-rango` – Linux-only Chromium wrapper for the managed virtual desktop flow
 - `packages.<system>.opencode-skills` – bundled opencode skills package
 - `packages.<system>.open-pencil-skill` – bundled `ZSeven-W/openpencil-skill` package
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
@@ -72,10 +74,12 @@ For services, project-local `opencode.json` and `.opencode/` discovery depends o
 - the wrapper exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
 - if `OPENCODE_SERVE_URL` is set, the wrapper runs `opencode attach "$OPENCODE_SERVE_URL" --dir "$PWD"`
 - `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`
-- `computer-use-mcp` is available as a local packaged MCP
+- `computer-use-mcp` is enabled by default as a local packaged MCP
+- Linux services can export a configured X11 `DISPLAY` to `computer-use-mcp` or manage a lightweight Xvfb/Openbox desktop
 - bundled skills are installed from `$out/share/opencode/skills`
 - the initial bundled skill is `devenv-2`
 - OpenPencil is enabled by default as a remote MCP at `http://127.0.0.1:3100/mcp`
+- Banani can be enabled as a remote MCP at `https://app.banani.co/api/mcp/mcp`
 - the optional OpenPencil skill comes from `ZSeven-W/openpencil-skill`
 
 The OpenPencil MCP entry expects a running `ZSeven-W/openpencil` desktop or web instance to expose that endpoint.
@@ -93,6 +97,8 @@ The bundled LM Studio provider expects `OPENCODE_PLATFORM_TOKEN` in the environm
 `extraEnv` is a Nix attribute set of environment variables that the wrapper exports before launching opencode.
 
 Use it for normal runtime environment variables such as provider API keys, feature flags, or a custom HTTP auth username.
+
+When `services.opencode.mcp.banani.enable = true`, `extraEnv.BANANI_API_KEY` is required.
 
 Example:
 
@@ -119,7 +125,7 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 
 ## Feature toggles
 
-`computer-use-mcp` keeps its existing defaults. OpenPencil is enabled by default for both the MCP connection and skill, and can still be disabled independently.
+`computer-use-mcp` is now enabled by default in the exposed Home Manager and NixOS modules. OpenPencil is enabled by default for both the MCP connection and skill, and can still be disabled independently.
 
 ```nix
 {
@@ -144,6 +150,23 @@ For secrets, prefer `serverPasswordFile` over putting the secret directly into `
 The default URL matches the MCP endpoint that `ZSeven-W/openpencil` exposes from a running desktop or web instance.
 `services.opencode.mcp.openPencil.package` and `services.opencode.mcp.openPencil.root` are now deprecated and ignored.
 
+### Enable Banani MCP
+
+```nix
+{
+  services.opencode = {
+    mcp.banani = {
+      enable = true;
+      url = "https://app.banani.co/api/mcp/mcp";
+    };
+
+    extraEnv.BANANI_API_KEY = "...";
+  };
+}
+```
+
+Banani is wired as a remote MCP entry named `banani`. Evaluation fails if Banani is enabled without `extraEnv.BANANI_API_KEY`.
+
 ### Enable OpenPencil skill only
 
 ```nix
@@ -153,6 +176,31 @@ The default URL matches the MCP endpoint that `ZSeven-W/openpencil` exposes from
 ```
 
 The packaged skill teaches opencode about `.op` files, the `op` CLI, and the layered MCP workflow used by `ZSeven-W/openpencil`.
+
+### Linux virtual display for computer-use-mcp
+
+Both the Home Manager and NixOS modules expose:
+
+```nix
+services.opencode.mcp.computerUse.virtualDisplay = {
+  enable = true;
+  fullDesktop = true;
+  display = null;
+
+  browser = {
+    enable = true;
+  };
+};
+```
+
+- `enable` turns on Linux virtual display handling
+- `fullDesktop = true` starts a managed Xvfb + Openbox session
+- `display` can point at an existing X11 display instead
+- if `fullDesktop = true` and `display = null`, the managed default is `:99`
+- evaluation fails when `virtualDisplay.enable = true` and neither `fullDesktop` nor `display` is set
+- `browser.enable = true` is only valid with `virtualDisplay.enable = true` and `fullDesktop = true`
+
+When `browser.enable = true`, the Linux service launcher starts the configured Chromium wrapper inside the managed virtual desktop.
 
 ### Enable both OpenPencil additions
 
@@ -210,7 +258,7 @@ The packaged skill teaches opencode about `.op` files, the `op` CLI, and the lay
 }
 ```
 
-`computer-use-mcp` is enabled by default on Darwin. On Linux it is available, but disabled by default because it expects an interactive X11 session.
+`computer-use-mcp` is enabled by default. On Linux it still needs X11, but you can now either point `services.opencode.mcp.computerUse.virtualDisplay.display` at an existing session or enable `services.opencode.mcp.computerUse.virtualDisplay.fullDesktop` for a managed virtual desktop.
 
 ### Home Manager: network-accessible service with password file
 
@@ -267,7 +315,7 @@ If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fai
 }
 ```
 
-The NixOS service runs `opencode serve` through the wrapped package and leaves `computer-use-mcp` disabled by default.
+The NixOS service runs `opencode serve` through the wrapped package with `computer-use-mcp` enabled by default. On Linux you can now either reuse an existing X11 `DISPLAY` or let the service manage an Xvfb/Openbox desktop.
 
 ### NixOS: network-accessible service with password file
 
@@ -309,6 +357,8 @@ If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
 When `computer-use-mcp` is enabled, the wrapper prints a reminder to install the Rango browser extension:
 
 https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb
+
+For the managed Linux virtual desktop flow, this repository also exposes `packages.<system>.chromium-with-rango`. It wraps Chromium and loads an unpacked packaged Rango extension from `packages.<system>.rango-extension`. This is intended for the managed virtual desktop/browser flow only, and it uses a local Chromium profile directory instead of a Chrome Web Store install.
 
 # Possible additions
 

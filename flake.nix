@@ -48,6 +48,14 @@
 
       mkComputerUsePackage = pkgs: pkgs.callPackage ./nix/packages/computer-use-mcp.nix { };
 
+      mkRangoExtensionPackage = pkgs: pkgs.callPackage ./nix/packages/rango-extension.nix { };
+
+      mkChromiumWithRangoPackage =
+        pkgs:
+        pkgs.callPackage ./nix/packages/chromium-with-rango.nix {
+          rango-extension = mkRangoExtensionPackage pkgs;
+        };
+
       mkBundledSkillsPackage = pkgs: pkgs.callPackage ./nix/packages/opencode-skills.nix { };
 
       mkOpenPencilSkillPackage = pkgs: pkgs.callPackage ./nix/packages/open-pencil-skill.nix { };
@@ -132,6 +140,9 @@
         let
           pkgs = mkPkgs system;
           computerUsePackage = mkComputerUsePackage pkgs;
+          rangoExtensionPackage = mkRangoExtensionPackage pkgs;
+          chromiumWithRangoPackage =
+            if pkgs.stdenv.isLinux then mkChromiumWithRangoPackage pkgs else null;
           bundledSkillsPackage = mkBundledSkillsPackage pkgs;
           openPencilSkillPackage = mkOpenPencilSkillPackage pkgs;
           defaultPackage = mkDefaultPackage pkgs;
@@ -140,8 +151,12 @@
           default = defaultPackage;
           opencode = defaultPackage;
           computer-use-mcp = computerUsePackage;
+          rango-extension = rangoExtensionPackage;
           opencode-skills = bundledSkillsPackage;
           open-pencil-skill = openPencilSkillPackage;
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          chromium-with-rango = chromiumWithRangoPackage;
         }
       );
 
@@ -192,11 +207,13 @@
         {
           default = self.packages.${system}.default;
           computer-use-mcp = self.packages.${system}.computer-use-mcp;
+          rango-extension = self.packages.${system}.rango-extension;
           opencode-skills = self.packages.${system}.opencode-skills;
           open-pencil-skill = self.packages.${system}.open-pencil-skill;
           home-manager = mkHomeManagerCheck pkgs;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
+          chromium-with-rango = self.packages.${system}.chromium-with-rango;
           nixos = mkNixosCheck pkgs;
         }
       );

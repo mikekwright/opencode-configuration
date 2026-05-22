@@ -9,7 +9,8 @@
   python3,
   stdenv,
   vips,
-  xorg,
+  libX11,
+  libXtst,
 }:
 buildNpmPackage rec {
   pname = "computer-use-mcp";
@@ -24,6 +25,9 @@ buildNpmPackage rec {
 
   npmDepsHash = "sha256-A9Q2xauiP3D7x/8E7rMXU8rl5CFv0+IHdZAnXQh2x+A=";
 
+  SHARP_IGNORE_GLOBAL_LIBVIPS = true;
+  npm_config_libc = if stdenv.hostPlatform.isMusl then "musl" else "glibc";
+
   nativeBuildInputs = [
     makeWrapper
   ] ++ lib.optionals stdenv.isLinux [
@@ -36,8 +40,8 @@ buildNpmPackage rec {
     vips
   ] ++ lib.optionals stdenv.isLinux [
     stdenv.cc.cc.lib
-    xorg.libX11
-    xorg.libXtst
+    libX11
+    libXtst
   ];
 
   npmBuildScript = "build";
@@ -50,6 +54,12 @@ buildNpmPackage rec {
 
     cp -r dist node_modules package.json "$libexec/"
 
+    ${lib.optionalString (stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl) ''
+      rm -rf \
+        "$libexec/node_modules/@img/sharp-linuxmusl-"* \
+        "$libexec/node_modules/@img/sharp-libvips-linuxmusl-"*
+    ''}
+
     makeWrapper ${lib.getExe nodejs} "$out/bin/computer-use-mcp" \
       --add-flags "$libexec/dist/main.js"
 
@@ -60,8 +70,8 @@ buildNpmPackage rec {
     wrapProgram "$out/bin/computer-use-mcp" \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [
         stdenv.cc.cc.lib
-        xorg.libX11
-        xorg.libXtst
+        libX11
+        libXtst
       ]}"
   '';
 
