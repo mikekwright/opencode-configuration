@@ -67,23 +67,18 @@
       password ? null,
     }:
     let
-      launcher = helpers.mkServiceLauncher {
+      launcher = helpers.mkCodeEditorServiceLauncher {
         inherit
           pkgs
           package
+          hostname
+          port
+          workingDirectory
+          extraArgs
           serverPasswordFile
           password
           ;
-        passwordEnvVar = "PASSWORD";
         name = "code-server-systemd-user";
-        args = helpers.mkCodeServerArgs {
-          inherit
-            hostname
-            port
-            workingDirectory
-            extraArgs
-            ;
-        };
       };
     in
     {
@@ -168,23 +163,18 @@
       password ? null,
     }:
     let
-      launcher = helpers.mkServiceLauncher {
+      launcher = helpers.mkCodeEditorServiceLauncher {
         inherit
           pkgs
           package
+          hostname
+          port
+          workingDirectory
+          extraArgs
           serverPasswordFile
           password
           ;
-        passwordEnvVar = "PASSWORD";
         name = "code-server-systemd";
-        args = helpers.mkCodeServerArgs {
-          inherit
-            hostname
-            port
-            workingDirectory
-            extraArgs
-            ;
-        };
       };
     in
     {

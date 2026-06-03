@@ -48,23 +48,18 @@
       password ? null,
     }:
     let
-      launcher = helpers.mkServiceLauncher {
+      launcher = helpers.mkCodeEditorServiceLauncher {
         inherit
           pkgs
           package
+          hostname
+          port
+          workingDirectory
+          extraArgs
           serverPasswordFile
           password
           ;
-        passwordEnvVar = "PASSWORD";
         name = "code-server-launchd";
-        args = helpers.mkCodeServerArgs {
-          inherit
-            hostname
-            port
-            workingDirectory
-            extraArgs
-            ;
-        };
       };
     in
     {

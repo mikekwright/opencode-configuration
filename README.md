@@ -57,7 +57,7 @@ This flake now targets `ZSeven-W/openpencil`.
 - `nixosModules.default` – NixOS module for a headless Linux service
 
 Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments.
-Both modules can also run `code-server` as a separate service using the same password source as the opencode server.
+Both modules can also run a separate VS Code web service through `services.opencode.codeServer`. It now defaults to `openvscode-server` and reuses the opencode password source as an OpenVSCode connection token.
 
 ## Config layering
 
@@ -131,18 +131,20 @@ If both are set, `serverPasswordFile` wins.
 
 For secrets, prefer `serverPasswordFile` over putting the secret directly into `extraEnv`.
 
-## code-server service
+## `services.opencode.codeServer`
 
 Both exposed modules add `services.opencode.codeServer`.
 
-- `enable = true` starts a separate `code-server` service
+- `enable = true` starts a separate VS Code web service
+- `package` defaults to nixpkgs `openvscode-server`
 - `port` defaults to `9998`
 - `hostname` defaults to `127.0.0.1`
 - `workingDirectory` defaults to the same working directory as the opencode service on that platform
-- the service reuses `services.opencode.serverPasswordFile` or `extraEnv.OPENCODE_SERVER_PASSWORD`
-- `services.opencode.serverUsername` is ignored because code-server supports password auth, but not a shared username field
+- the default `openvscode-server` backend reuses `services.opencode.serverPasswordFile` or `extraEnv.OPENCODE_SERVER_PASSWORD` as its connection token
+- `services.opencode.serverUsername` is ignored
 
-If nixpkgs does not provide `code-server` for the current platform, set `services.opencode.codeServer.package` explicitly.
+Override `services.opencode.codeServer.package = pkgs.code-server;` if you want code-server's password login flow instead.
+For the default OpenVSCode backend, prefer `serverPasswordFile` so the token can be passed by file instead of inline on the command line.
 
 ## Feature toggles
 
@@ -326,7 +328,7 @@ If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fai
 }
 ```
 
-### Home Manager: run code-server too
+### Home Manager: run the VS Code web service too
 
 ```nix
 {
@@ -391,7 +393,7 @@ If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
 }
 ```
 
-### NixOS: run code-server too
+### NixOS: run the VS Code web service too
 
 ```nix
 {

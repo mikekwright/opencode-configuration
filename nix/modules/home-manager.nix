@@ -15,8 +15,8 @@ let
   effectiveComputerUseDisplay = helpers.getVirtualDisplay computerUseVirtualDisplay;
 
   defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
-  codeServerSupported = lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.code-server;
-  defaultCodeServerPackage = if codeServerSupported then pkgs.code-server else null;
+  codeServerSupported = lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.openvscode-server;
+  defaultCodeServerPackage = if codeServerSupported then pkgs.openvscode-server else null;
   defaultBrowserPackage =
     if pkgs.stdenv.isLinux then
       self.packages.${pkgs.stdenv.hostPlatform.system}.chromium-with-rango
@@ -42,6 +42,12 @@ let
 
   codeServerPassword =
     if cfg.serverPasswordFile != null then null else cfg.extraEnv.OPENCODE_SERVER_PASSWORD or null;
+
+  codeServerProgramName =
+    if cfg.codeServer.package == null then
+      null
+    else
+      builtins.baseNameOf (lib.getExe cfg.codeServer.package);
 
   managedPackage = mkOpencodePackage {
     inherit pkgs;
@@ -281,7 +287,7 @@ in
       package = lib.mkOption {
         type = lib.types.nullOr lib.types.package;
         default = defaultCodeServerPackage;
-        description = "code-server package to run. Defaults to nixpkgs `code-server` when it is available on this platform.";
+        description = "VS Code server package to run. Defaults to nixpkgs `openvscode-server` when it is available on this platform.";
       };
 
       autoStart = lib.mkOption {
@@ -332,16 +338,26 @@ in
           })
           {
             assertion = !cfg.codeServer.enable || cfg.codeServer.package != null;
-            message = "services.opencode.codeServer.enable requires a code-server package on this platform. Set services.opencode.codeServer.package explicitly if nixpkgs does not provide one.";
+            message = "services.opencode.codeServer.enable requires a VS Code server package on this platform. Set services.opencode.codeServer.package explicitly if nixpkgs does not provide one.";
+          }
+          {
+            assertion =
+              !cfg.codeServer.enable
+              || cfg.codeServer.package == null
+              || lib.elem codeServerProgramName [
+                "code-server"
+                "openvscode-server"
+              ];
+            message = "services.opencode.codeServer.package must provide either the `code-server` or `openvscode-server` executable.";
           }
           {
             assertion =
               !cfg.codeServer.enable || cfg.serverPasswordFile != null || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
-            message = "services.opencode.codeServer.enable requires services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD so code-server can reuse the opencode password.";
+            message = "services.opencode.codeServer.enable requires services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD so the VS Code service can reuse the opencode password source.";
           }
           (helpers.mkReservedCodeServerArgsAssertion {
             extraArgs = cfg.codeServer.extraArgs;
-            message = "services.opencode.codeServer.extraArgs must not override bind-addr or auth. Use services.opencode.codeServer.hostname and services.opencode.codeServer.port instead.";
+            message = "services.opencode.codeServer.extraArgs must not override the service host, port, or auth/token flags. Use services.opencode.codeServer.hostname and services.opencode.codeServer.port instead.";
           })
           {
             assertion = !computerUseVirtualDisplay.enable || effectiveComputerUseDisplay != null;
@@ -380,7 +396,7 @@ in
             services.opencode.mcp.openPencil.root is ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.
           ''
           ++ lib.optional (cfg.codeServer.enable && cfg.serverUsername != null) ''
-            services.opencode.serverUsername is ignored by services.opencode.codeServer. code-server supports password authentication, but not a shared username.
+            services.opencode.serverUsername is ignored by services.opencode.codeServer. Neither openvscode-server nor code-server shares opencode's username setting.
           '';
       }
 

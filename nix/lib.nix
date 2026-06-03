@@ -38,6 +38,13 @@ rec {
   hasReservedCodeServerArg = hasReservedArgs [
     "--auth"
     "--bind-addr"
+    "--connection-token"
+    "--connection-token-file"
+    "--host"
+    "--port"
+    "--socket"
+    "--socket-path"
+    "--without-connection-token"
   ];
 
   mkServeArgs =
@@ -69,6 +76,28 @@ rec {
       "${hostname}:${toString port}"
       workingDirectory
     ]
+    ++ extraArgs;
+
+  mkOpenVSCodeServerArgs =
+    {
+      hostname,
+      port,
+      workingDirectory,
+      extraArgs ? [ ],
+      connectionTokenFile ? null,
+    }:
+    [
+      "--accept-server-license-terms"
+      "--host"
+      hostname
+      "--port"
+      (toString port)
+    ]
+    ++ lib.optionals (connectionTokenFile != null) [
+      "--connection-token-file"
+      (toString connectionTokenFile)
+    ]
+    ++ [ workingDirectory ]
     ++ extraArgs;
 
   mkServiceEnv =
@@ -125,6 +154,7 @@ rec {
       serverPasswordFile ? null,
       password ? null,
       passwordEnvVar ? "OPENCODE_SERVER_PASSWORD",
+      extraExecArgs ? "",
       virtualDisplay ? {
         enable = false;
       },
@@ -221,14 +251,61 @@ rec {
           browser_pid=$!
         ''}
 
-        ${lib.getExe package} ${lib.escapeShellArgs args} &
+        ${lib.getExe package} ${lib.escapeShellArgs args}${extraExecArgs} &
         opencode_pid=$!
         wait "$opencode_pid"
         exit $?
       ''}
 
       ${lib.optionalString (!managedVirtualDesktop) ''
-        exec ${lib.getExe package} ${lib.escapeShellArgs args}
+        exec ${lib.getExe package} ${lib.escapeShellArgs args}${extraExecArgs}
       ''}
     '';
+
+  mkCodeEditorServiceLauncher =
+    {
+      pkgs,
+      package,
+      hostname,
+      port,
+      workingDirectory,
+      extraArgs ? [ ],
+      serverPasswordFile ? null,
+      password ? null,
+      name ? "code-editor-service",
+    }:
+    let
+      programName = builtins.baseNameOf (lib.getExe package);
+      useOpenVSCodeServer = programName == "openvscode-server";
+      useInlineConnectionToken = useOpenVSCodeServer && serverPasswordFile == null && password != null;
+    in
+    mkServiceLauncher {
+      inherit pkgs package name;
+      serverPasswordFile = if useOpenVSCodeServer then null else serverPasswordFile;
+      password =
+        if useOpenVSCodeServer then if useInlineConnectionToken then password else null else password;
+      passwordEnvVar = if useOpenVSCodeServer then "OPENCODE_SERVER_PASSWORD" else "PASSWORD";
+      args =
+        if useOpenVSCodeServer then
+          mkOpenVSCodeServerArgs {
+            inherit
+              hostname
+              port
+              workingDirectory
+              extraArgs
+              ;
+            connectionTokenFile = serverPasswordFile;
+          }
+        else
+          mkCodeServerArgs {
+            inherit
+              hostname
+              port
+              workingDirectory
+              extraArgs
+              ;
+          };
+      extraExecArgs =
+        if useInlineConnectionToken then " --connection-token \"$OPENCODE_SERVER_PASSWORD\"" else "";
+    };
 }

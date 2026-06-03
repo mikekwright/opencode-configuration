@@ -35,7 +35,7 @@ The optional OpenPencil skill is packaged separately from the upstream `ZSeven-W
 - `nix/modules/system/darwin.nix` contains Darwin launchd behavior
 - `nix/modules/system/linux.nix` contains Linux systemd behavior reused by Home Manager and NixOS
 - Home Manager and NixOS services use a small launcher script that exports service environment, then execs the wrapped `opencode` package with `serve` arguments
-- the same service layer can also run a separate `code-server` service, reusing the opencode password source while keeping code-server outside the opencode wrapper/config stack
+- the same service layer can also run a separate VS Code web service, defaulting to `openvscode-server` and reusing the opencode password source while keeping that service outside the opencode wrapper/config stack
 - on Linux, that launcher can either export an existing X11 `DISPLAY` to `computer-use-mcp` or manage a lightweight Xvfb + Openbox desktop before starting `opencode serve`
 - when the managed Linux desktop flow enables the browser option, the launcher also starts the packaged Chromium-with-Rango wrapper inside that virtual desktop
 
