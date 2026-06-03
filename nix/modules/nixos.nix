@@ -14,6 +14,8 @@ let
   effectiveComputerUseDisplay = helpers.getVirtualDisplay computerUseVirtualDisplay;
 
   defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
+  codeServerSupported = lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.code-server;
+  defaultCodeServerPackage = if codeServerSupported then pkgs.code-server else null;
   defaultBrowserPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.chromium-with-rango;
 
   baseOpencodePackage =
@@ -26,6 +28,9 @@ let
     lib.optional (cfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
     ++ lib.optional (cfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
   );
+
+  codeServerPassword =
+    if cfg.serverPasswordFile != null then null else cfg.extraEnv.OPENCODE_SERVER_PASSWORD or null;
 
   managedPackage = mkOpencodePackage {
     inherit pkgs;
@@ -256,6 +261,40 @@ in
         };
       };
     };
+
+    codeServer = {
+      enable = lib.mkEnableOption "the code-server background service";
+
+      package = lib.mkOption {
+        type = lib.types.nullOr lib.types.package;
+        default = defaultCodeServerPackage;
+        description = "code-server package to run. Defaults to nixpkgs `code-server` when it is available on this platform.";
+      };
+
+      hostname = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1";
+        description = "Hostname for `code-server --bind-addr`.";
+      };
+
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 9998;
+        description = "Port for `code-server --bind-addr`.";
+      };
+
+      workingDirectory = lib.mkOption {
+        type = lib.types.str;
+        default = cfg.workingDirectory;
+        description = "Working directory opened by code-server and used by the service.";
+      };
+
+      extraArgs = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "Extra arguments passed to `code-server`.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -275,11 +314,26 @@ in
         message = "services.opencode.extraArgs must not override hostname, port, or mdns. Use services.opencode.hostname and services.opencode.port instead.";
       })
       {
+        assertion = !cfg.codeServer.enable || cfg.codeServer.package != null;
+        message = "services.opencode.codeServer.enable requires a code-server package on this platform. Set services.opencode.codeServer.package explicitly if nixpkgs does not provide one.";
+      }
+      {
+        assertion =
+          !cfg.codeServer.enable || cfg.serverPasswordFile != null || cfg.extraEnv ? OPENCODE_SERVER_PASSWORD;
+        message = "services.opencode.codeServer.enable requires services.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD so code-server can reuse the opencode password.";
+      }
+      (helpers.mkReservedCodeServerArgsAssertion {
+        extraArgs = cfg.codeServer.extraArgs;
+        message = "services.opencode.codeServer.extraArgs must not override bind-addr or auth. Use services.opencode.codeServer.hostname and services.opencode.codeServer.port instead.";
+      })
+      {
         assertion = !computerUseVirtualDisplay.enable || effectiveComputerUseDisplay != null;
         message = "services.opencode.mcp.computerUse.virtualDisplay.enable requires virtualDisplay.fullDesktop = true or virtualDisplay.display to be set.";
       }
       {
-        assertion = !computerUseVirtualDisplay.browser.enable || (computerUseVirtualDisplay.enable && computerUseVirtualDisplay.fullDesktop);
+        assertion =
+          !computerUseVirtualDisplay.browser.enable
+          || (computerUseVirtualDisplay.enable && computerUseVirtualDisplay.fullDesktop);
         message = "services.opencode.mcp.computerUse.virtualDisplay.browser.enable requires virtualDisplay.enable = true and virtualDisplay.fullDesktop = true.";
       }
       {
@@ -298,9 +352,15 @@ in
       ''
       ++ lib.optional (cfg.mcp.enable && cfg.mcp.openPencil.root != null) ''
         services.opencode.mcp.openPencil.root is ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.
+      ''
+      ++ lib.optional (cfg.codeServer.enable && cfg.serverUsername != null) ''
+        services.opencode.serverUsername is ignored by services.opencode.codeServer. code-server supports password authentication, but not a shared username.
       '';
 
-    environment.systemPackages = [ managedPackage ];
+    environment.systemPackages = [
+      managedPackage
+    ]
+    ++ lib.optional (cfg.codeServer.enable && cfg.codeServer.package != null) cfg.codeServer.package;
 
     users.groups = lib.optionalAttrs (cfg.group == "opencode") {
       ${cfg.group} = { };
@@ -317,7 +377,12 @@ in
 
     systemd.tmpfiles.rules = [
       "d ${cfg.workingDirectory} 0750 ${cfg.user} ${cfg.group} -"
-    ];
+    ]
+    ++ lib.optional (
+      cfg.codeServer.enable
+      && cfg.codeServer.package != null
+      && cfg.codeServer.workingDirectory != cfg.workingDirectory
+    ) "d ${cfg.codeServer.workingDirectory} 0750 ${cfg.user} ${cfg.group} -";
 
     systemd.services =
       (linuxSystem.mkNixosService {
@@ -339,6 +404,19 @@ in
             package = computerUseVirtualDisplay.browser.package;
           };
         };
-      }).systemd.services;
+      }).systemd.services
+      // lib.optionalAttrs (cfg.codeServer.enable && cfg.codeServer.package != null) (
+        (linuxSystem.mkCodeServerNixosService {
+          package = cfg.codeServer.package;
+          hostname = cfg.codeServer.hostname;
+          port = cfg.codeServer.port;
+          extraArgs = cfg.codeServer.extraArgs;
+          workingDirectory = cfg.codeServer.workingDirectory;
+          user = cfg.user;
+          group = cfg.group;
+          serverPasswordFile = cfg.serverPasswordFile;
+          password = codeServerPassword;
+        }).systemd.services
+      );
   };
 }

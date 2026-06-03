@@ -35,4 +35,48 @@
         };
       };
     };
+
+  mkCodeServerHomeManagerService =
+    {
+      package,
+      hostname,
+      port,
+      extraArgs ? [ ],
+      workingDirectory,
+      autoStart ? true,
+      serverPasswordFile ? null,
+      password ? null,
+    }:
+    let
+      launcher = helpers.mkServiceLauncher {
+        inherit
+          pkgs
+          package
+          serverPasswordFile
+          password
+          ;
+        passwordEnvVar = "PASSWORD";
+        name = "code-server-launchd";
+        args = helpers.mkCodeServerArgs {
+          inherit
+            hostname
+            port
+            workingDirectory
+            extraArgs
+            ;
+        };
+      };
+    in
+    {
+      launchd.agents.code-server = {
+        enable = true;
+        config = {
+          Label = "ai.code-server";
+          ProgramArguments = [ "${launcher}" ];
+          RunAtLoad = autoStart;
+          KeepAlive = autoStart;
+          WorkingDirectory = workingDirectory;
+        };
+      };
+    };
 }

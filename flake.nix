@@ -60,6 +60,8 @@
 
       mkOpenPencilSkillPackage = pkgs: pkgs.callPackage ./nix/packages/open-pencil-skill.nix { };
 
+      mkCodeServerSupported = pkgs: lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.code-server;
+
       mkDefaultPackage =
         pkgs:
         let
@@ -139,10 +141,10 @@
         system:
         let
           pkgs = mkPkgs system;
+          codeServerSupported = mkCodeServerSupported pkgs;
           computerUsePackage = mkComputerUsePackage pkgs;
           rangoExtensionPackage = mkRangoExtensionPackage pkgs;
-          chromiumWithRangoPackage =
-            if pkgs.stdenv.isLinux then mkChromiumWithRangoPackage pkgs else null;
+          chromiumWithRangoPackage = if pkgs.stdenv.isLinux then mkChromiumWithRangoPackage pkgs else null;
           bundledSkillsPackage = mkBundledSkillsPackage pkgs;
           openPencilSkillPackage = mkOpenPencilSkillPackage pkgs;
           defaultPackage = mkDefaultPackage pkgs;
@@ -155,6 +157,9 @@
           opencode-skills = bundledSkillsPackage;
           open-pencil-skill = openPencilSkillPackage;
         }
+        // lib.optionalAttrs codeServerSupported {
+          code-server = pkgs.code-server;
+        }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           chromium-with-rango = chromiumWithRangoPackage;
         }
@@ -163,6 +168,8 @@
       apps = forAllSystems (
         system:
         let
+          pkgs = mkPkgs system;
+          codeServerSupported = mkCodeServerSupported pkgs;
           program = "${self.packages.${system}.default}/bin/opencode";
         in
         {
@@ -176,6 +183,13 @@
             type = "app";
             inherit program;
             meta.description = "Run the wrapped opencode CLI";
+          };
+        }
+        // lib.optionalAttrs codeServerSupported {
+          code-server = {
+            type = "app";
+            program = lib.getExe self.packages.${system}.code-server;
+            meta.description = "Run code-server";
           };
         }
       );
@@ -203,6 +217,7 @@
         system:
         let
           pkgs = mkPkgs system;
+          codeServerSupported = mkCodeServerSupported pkgs;
         in
         {
           default = self.packages.${system}.default;
@@ -211,6 +226,9 @@
           opencode-skills = self.packages.${system}.opencode-skills;
           open-pencil-skill = self.packages.${system}.open-pencil-skill;
           home-manager = mkHomeManagerCheck pkgs;
+        }
+        // lib.optionalAttrs codeServerSupported {
+          code-server = self.packages.${system}.code-server;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           chromium-with-rango = self.packages.${system}.chromium-with-rango;

@@ -1,6 +1,7 @@
 { lib }:
 let
-  mkEnvExports = envVars:
+  mkEnvExports =
+    envVars:
     lib.concatStringsSep "\n" (
       lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg (toString value)}") envVars
     );
@@ -12,7 +13,8 @@ rec {
 
   inherit mkEnvExports;
 
-  getVirtualDisplay = virtualDisplay:
+  getVirtualDisplay =
+    virtualDisplay:
     if !(virtualDisplay.enable or false) then
       null
     else if (virtualDisplay.display or null) != null then
@@ -22,16 +24,21 @@ rec {
     else
       null;
 
-  hasReservedServeArg =
-    args:
-    lib.any (
-      arg:
-      arg == "--hostname"
-      || lib.hasPrefix "--hostname=" arg
-      || arg == "--port"
-      || lib.hasPrefix "--port=" arg
-      || arg == "--mdns"
-    ) args;
+  hasReservedArg =
+    reserved: arg: lib.any (flag: arg == flag || lib.hasPrefix "${flag}=" arg) reserved;
+
+  hasReservedArgs = reserved: args: lib.any (hasReservedArg reserved) args;
+
+  hasReservedServeArg = hasReservedArgs [
+    "--hostname"
+    "--port"
+    "--mdns"
+  ];
+
+  hasReservedCodeServerArg = hasReservedArgs [
+    "--auth"
+    "--bind-addr"
+  ];
 
   mkServeArgs =
     {
@@ -45,6 +52,22 @@ rec {
       hostname
       "--port"
       (toString port)
+    ]
+    ++ extraArgs;
+
+  mkCodeServerArgs =
+    {
+      hostname,
+      port,
+      workingDirectory,
+      extraArgs ? [ ],
+    }:
+    [
+      "--auth"
+      "password"
+      "--bind-addr"
+      "${hostname}:${toString port}"
+      workingDirectory
     ]
     ++ extraArgs;
 
@@ -69,9 +92,7 @@ rec {
     }:
     {
       assertion =
-        hostname != "0.0.0.0"
-        || serverPasswordFile != null
-        || extraEnv ? OPENCODE_SERVER_PASSWORD;
+        hostname != "0.0.0.0" || serverPasswordFile != null || extraEnv ? OPENCODE_SERVER_PASSWORD;
       inherit message;
     };
 
@@ -85,6 +106,16 @@ rec {
       inherit message;
     };
 
+  mkReservedCodeServerArgsAssertion =
+    {
+      extraArgs,
+      message,
+    }:
+    {
+      assertion = !(hasReservedCodeServerArg extraArgs);
+      inherit message;
+    };
+
   mkServiceLauncher =
     {
       pkgs,
@@ -92,7 +123,11 @@ rec {
       args,
       env ? { },
       serverPasswordFile ? null,
-      virtualDisplay ? { enable = false; },
+      password ? null,
+      passwordEnvVar ? "OPENCODE_SERVER_PASSWORD",
+      virtualDisplay ? {
+        enable = false;
+      },
       name ? "opencode-service",
     }:
     let
@@ -107,12 +142,16 @@ rec {
 
       ${mkEnvExports env}
 
+      ${lib.optionalString (password != null) ''
+        export ${passwordEnvVar}=${lib.escapeShellArg password}
+      ''}
+
       ${lib.optionalString (serverPasswordFile != null) ''
         if [ ! -r ${lib.escapeShellArg (toString serverPasswordFile)} ]; then
-          printf '%s\n' ${lib.escapeShellArg "Configured OPENCODE_SERVER_PASSWORD file is not readable: ${toString serverPasswordFile}"} >&2
+          printf '%s\n' ${lib.escapeShellArg "Configured ${passwordEnvVar} file is not readable: ${toString serverPasswordFile}"} >&2
           exit 1
         fi
-        export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg (toString serverPasswordFile)})"
+        export ${passwordEnvVar}="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg (toString serverPasswordFile)})"
       ''}
 
       ${lib.optionalString virtualDisplayEnabled ''

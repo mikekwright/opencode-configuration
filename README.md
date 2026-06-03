@@ -10,6 +10,12 @@ Run opencode from this repository:
 nix run .
 ```
 
+Run code-server from this repository on supported platforms:
+
+```bash
+nix run .#code-server
+```
+
 Open the development shell:
 
 ```bash
@@ -42,6 +48,7 @@ This flake now targets `ZSeven-W/openpencil`.
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.opencode` – wrapped interactive `opencode`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
+- `packages.<system>.code-server` – upstream `code-server` package when nixpkgs supports the current platform
 - `packages.<system>.rango-extension` – packaged unpacked Rango extension bundle
 - `packages.<system>.chromium-with-rango` – Linux-only Chromium wrapper for the managed virtual desktop flow
 - `packages.<system>.opencode-skills` – bundled opencode skills package
@@ -50,6 +57,7 @@ This flake now targets `ZSeven-W/openpencil`.
 - `nixosModules.default` – NixOS module for a headless Linux service
 
 Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments.
+Both modules can also run `code-server` as a separate service using the same password source as the opencode server.
 
 ## Config layering
 
@@ -122,6 +130,19 @@ Passwords can be supplied either way:
 If both are set, `serverPasswordFile` wins.
 
 For secrets, prefer `serverPasswordFile` over putting the secret directly into `extraEnv`.
+
+## code-server service
+
+Both exposed modules add `services.opencode.codeServer`.
+
+- `enable = true` starts a separate `code-server` service
+- `port` defaults to `9998`
+- `hostname` defaults to `127.0.0.1`
+- `workingDirectory` defaults to the same working directory as the opencode service on that platform
+- the service reuses `services.opencode.serverPasswordFile` or `extraEnv.OPENCODE_SERVER_PASSWORD`
+- `services.opencode.serverUsername` is ignored because code-server supports password auth, but not a shared username field
+
+If nixpkgs does not provide `code-server` for the current platform, set `services.opencode.codeServer.package` explicitly.
 
 ## Feature toggles
 
@@ -305,6 +326,24 @@ If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fai
 }
 ```
 
+### Home Manager: run code-server too
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.opencode = {
+    enable = true;
+    serverPasswordFile = "/run/secrets/opencode-password";
+
+    codeServer = {
+      enable = true;
+      port = 9998;
+    };
+  };
+}
+```
+
 ### NixOS: minimal
 
 ```nix
@@ -347,6 +386,24 @@ If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
       ANTHROPIC_API_KEY = "...";
       OPENCODE_SERVER_USERNAME = "opencode";
       OPENCODE_SERVER_PASSWORD = "secret";
+    };
+  };
+}
+```
+
+### NixOS: run code-server too
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.opencode = {
+    enable = true;
+    serverPasswordFile = "/run/secrets/opencode-password";
+
+    codeServer = {
+      enable = true;
+      port = 9998;
     };
   };
 }
