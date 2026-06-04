@@ -1,19 +1,19 @@
 # opencode-configuration
 
-This flake packages `opencode`, exposes service modules, and wires in declarative MCP integrations.
+This flake packages `opencode`, `openvscode-server`, and `nginx`, then exposes Home Manager and NixOS modules under `services.aiagent` for a remote AI-first development machine.
 
 ## Usage
 
-Run opencode from this repository:
+Run wrapped `opencode`:
 
 ```bash
 nix run .
 ```
 
-Run code-server from this repository on supported platforms:
+Run `openvscode-server`:
 
 ```bash
-nix run .#code-server
+nix run .#openvscode-server
 ```
 
 Open the development shell:
@@ -22,42 +22,91 @@ Open the development shell:
 nix develop
 ```
 
-Start the web UI locally:
+Start the OpenCode web UI locally:
 
 ```bash
 nix run . -- serve
 ```
 
-Expose the web UI on your network with a password:
-
-```bash
-OPENCODE_SERVER_PASSWORD=secret nix run . -- serve --hostname 0.0.0.0 --port 4096
-```
-
-## Two OpenPencil projects
-
-There are two different projects named OpenPencil, and both GitHub landing pages call out the name collision.
-
-- [`open-pencil/open-pencil`](https://github.com/open-pencil/open-pencil) presents itself as a Figma-compatible visual design editor focused on `.fig` and `.pen` files, real-time collaboration, a standalone `@open-pencil/mcp` package, and the separate `open-pencil/skills` repository.
-- [`ZSeven-W/openpencil`](https://github.com/ZSeven-W/openpencil) presents itself as an AI-native vector design tool focused on `.op` files, the `op` CLI, concurrent agent teams, a built-in MCP server exposed by the running app, and the separate `ZSeven-W/openpencil-skill` repository.
-
-This flake now targets `ZSeven-W/openpencil`.
-
 ## Flake outputs
 
 - `packages.<system>.default` – wrapped `opencode`
-- `packages.<system>.opencode` – wrapped interactive `opencode`
+- `packages.<system>.opencode` – wrapped `opencode`
+- `packages.<system>.openvscode-server` – upstream `openvscode-server`
+- `packages.<system>.nginx` – upstream `nginx`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
-- `packages.<system>.code-server` – upstream `code-server` package when nixpkgs supports the current platform
 - `packages.<system>.rango-extension` – packaged unpacked Rango extension bundle
 - `packages.<system>.chromium-with-rango` – Linux-only Chromium wrapper for the managed virtual desktop flow
 - `packages.<system>.opencode-skills` – bundled opencode skills package
 - `packages.<system>.open-pencil-skill` – bundled `ZSeven-W/openpencil-skill` package
+- `apps.<system>.default` – wrapped `opencode`
+- `apps.<system>.openvscode-server` – `openvscode-server`
 - `homeManagerModules.default` – Home Manager module for Darwin and Linux
-- `nixosModules.default` – NixOS module for a headless Linux service
+- `nixosModules.default` – NixOS module
 
-Home Manager and NixOS services run the wrapped `opencode` package directly with `serve` arguments.
-Both modules can also run a separate VS Code web service through `services.opencode.codeServer`. It now defaults to `openvscode-server` and reuses the opencode password source as an OpenVSCode connection token.
+## Service topology
+
+The managed stack is:
+
+```text
+tailnet DNS -> nginx -> Host: <opencode domain> -> opencode
+tailnet DNS -> nginx -> Host: <openvscode domain> -> openvscode-server
+```
+
+Typical defaults:
+
+- `opencode` listens on `127.0.0.1:4096`
+- `openvscode-server` listens on `127.0.0.1:9998`
+- `nginx` listens on `127.0.0.1:8123` unless you expose it explicitly
+
+This flake does **not** manage:
+
+- `tailscale serve`
+- Tailscale installation
+- DNS records
+- TLS certificates for custom domains
+
+You are expected to point multiple domains at the same machine and nginx port, then let nginx route by `Host` header.
+
+For the most conservative setup, bind `services.aiagent.nginx.listenAddress` directly to the machine's Tailscale IP instead of `0.0.0.0`.
+
+## `services.aiagent`
+
+The public module interface is:
+
+```nix
+{
+  services.aiagent = {
+    opencode = {
+      enable = true;
+      hostname = "127.0.0.1";
+      port = 4096;
+      domain = "agent.example.internal";
+    };
+
+    openvscode = {
+      enable = true;
+      hostname = "127.0.0.1";
+      port = 9998;
+      domain = "code.example.internal";
+    };
+
+    nginx = {
+      enable = true;
+      listenAddress = "100.64.0.10";
+      port = 8123;
+    };
+  };
+}
+```
+
+Behavior:
+
+- `services.aiagent.opencode.domain` tells nginx which host should proxy to `opencode`
+- `services.aiagent.openvscode.domain` tells nginx which host should proxy to `openvscode-server`
+- both domains must resolve to the same nginx listener
+- enabled services must use distinct ports
+- nginx requires at least one enabled backend with a domain
 
 ## Config layering
 
@@ -73,97 +122,191 @@ OpenCode merges config sources instead of replacing them, so the wrapped package
 
 The wrapper intentionally does not override `HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG`, or `OPENCODE_CONFIG_DIR`, so bundled config from this flake is layered on top of the standard locations instead of replacing them. Standard locations are still read, but bundled keys win on conflicts because `OPENCODE_CONFIG_CONTENT` loads later.
 
-For services, project-local `opencode.json` and `.opencode/` discovery depends on the configured working directory.
+## Authentication defaults
 
-## Bundled runtime additions
+### OpenCode
 
-- bundled custom agents are generated from `nix/config/agents/` and currently expose the `flake-setup`, `opencode-agent-manager`, and `opencode-manager` families
-- the wrapper exports `OPENCODE_TUI_CONFIG` with bundled `tui.json` keybinds
-- the wrapper exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
-- if `OPENCODE_SERVE_URL` is set, the wrapper runs `opencode attach "$OPENCODE_SERVE_URL" --dir "$PWD"`
-- `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`
-- `computer-use-mcp` is enabled by default as a local packaged MCP
-- Linux services can export a configured X11 `DISPLAY` to `computer-use-mcp` or manage a lightweight Xvfb/Openbox desktop
-- bundled skills are installed from `$out/share/opencode/skills`
-- the initial bundled skill is `devenv-2`
-- OpenPencil is enabled by default as a remote MCP at `http://127.0.0.1:3100/mcp`
-- Banani can be enabled as a remote MCP at `https://app.banani.co/api/mcp/mcp`
-- the optional OpenPencil skill comes from `ZSeven-W/openpencil-skill`
+OpenCode still uses its own password handling:
 
-The OpenPencil MCP entry expects a running `ZSeven-W/openpencil` desktop or web instance to expose that endpoint.
+- `services.aiagent.opencode.serverPasswordFile`
+- `services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD`
 
-The bundled LM Studio provider expects `OPENCODE_PLATFORM_TOKEN` in the environment and passes it through OpenCode's `{env:...}` substitution.
+If nginx exposes `services.aiagent.opencode.domain`, evaluation requires one of those password sources.
 
-## Adding future bundled skills
+### OpenVSCode Server
 
-- add the skill under `nix/skills/<skill-name>/SKILL.md`
-- keep supporting docs as `notes.md`, `examples.md`, or similar in the same folder
-- the packaging layer copies `nix/skills/` into the installed opencode skill bundle
+OpenVSCode Server uses a connection token:
 
-## `extraEnv` explained
+- `services.aiagent.openvscode.connectionTokenFile`
+- `services.aiagent.openvscode.connectionToken`
 
-`extraEnv` is a Nix attribute set of environment variables that the wrapper exports before launching opencode.
+Defaults:
 
-Use it for normal runtime environment variables such as provider API keys, feature flags, or a custom HTTP auth username.
+- `connectionTokenFile` defaults to `services.aiagent.opencode.serverPasswordFile`
+- `connectionToken` defaults to `services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD`
 
-When `services.opencode.mcp.banani.enable = true`, `extraEnv.BANANI_API_KEY` is required.
+So if you already configure an OpenCode password, OpenVSCode Server can reuse it automatically.
 
-Example:
+## Examples
+
+### Home Manager: local-only OpenCode
 
 ```nix
 {
-  services.opencode = {
-    enable = true;
-    extraEnv = {
-      ANTHROPIC_API_KEY = "...";
-      OPENCODE_SERVER_USERNAME = "michael";
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.aiagent.opencode.enable = true;
+}
+```
+
+`computer-use-mcp` is enabled by default. On Linux it still needs X11, but you can either point `services.aiagent.opencode.mcp.computerUse.virtualDisplay.display` at an existing session or enable `services.aiagent.opencode.mcp.computerUse.virtualDisplay.fullDesktop` for a managed virtual desktop.
+
+### Home Manager: remote host-based setup on a Tailscale IP
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.aiagent = {
+    opencode = {
+      enable = true;
+      domain = "agent.dev.internal";
+      serverPasswordFile = "/run/secrets/opencode-password";
+      serverUsername = "michael";
+    };
+
+    openvscode = {
+      enable = true;
+      domain = "code.dev.internal";
+    };
+
+    nginx = {
+      enable = true;
+      listenAddress = "100.64.0.10";
+      port = 8123;
     };
   };
 }
 ```
 
-Passwords can be supplied either way:
+Point both domains at `100.64.0.10`, then access:
 
-- `serverPasswordFile = "/path/to/file";`
-- `extraEnv.OPENCODE_SERVER_PASSWORD = "...";`
+- `http://agent.dev.internal:8123`
+- `http://code.dev.internal:8123`
 
-If both are set, `serverPasswordFile` wins.
+Home Manager user services must use ports `>= 1024`.
 
-For secrets, prefer `serverPasswordFile` over putting the secret directly into `extraEnv`.
-
-## `services.opencode.codeServer`
-
-Both exposed modules add `services.opencode.codeServer`.
-
-- `enable = true` starts a separate VS Code web service
-- `package` defaults to nixpkgs `openvscode-server`
-- `port` defaults to `9998`
-- `hostname` defaults to `127.0.0.1`
-- `workingDirectory` defaults to the same working directory as the opencode service on that platform
-- the default `openvscode-server` backend reuses `services.opencode.serverPasswordFile` or `extraEnv.OPENCODE_SERVER_PASSWORD` as its connection token
-- `services.opencode.serverUsername` is ignored
-
-Override `services.opencode.codeServer.package = pkgs.code-server;` if you want code-server's password login flow instead.
-For the default OpenVSCode backend, prefer `serverPasswordFile` so the token can be passed by file instead of inline on the command line.
-
-## Feature toggles
-
-`computer-use-mcp` is now enabled by default in the exposed Home Manager and NixOS modules. OpenPencil is enabled by default for both the MCP connection and skill, and can still be disabled independently.
+### Home Manager: extra config and extra environment
 
 ```nix
 {
-  services.opencode = {
-    mcp.enable = false;
-    skills.enable = false;
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.aiagent.opencode = {
+    enable = true;
+
+    extraConfig = {
+      model = "anthropic/claude-sonnet-4-5";
+      server.cors = [ "https://example.com" ];
+    };
+
+    extraEnv = {
+      ANTHROPIC_API_KEY = "...";
+      OPENCODE_SERVER_USERNAME = "opencode";
+      OPENCODE_SERVER_PASSWORD = "secret";
+    };
   };
 }
 ```
+
+### Home Manager: separate OpenVSCode token
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.aiagent = {
+    opencode = {
+      enable = true;
+      serverPasswordFile = "/run/secrets/opencode-password";
+    };
+
+    openvscode = {
+      enable = true;
+      connectionTokenFile = "/run/secrets/openvscode-token";
+    };
+  };
+}
+```
+
+### NixOS: local-only OpenCode
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.aiagent.opencode.enable = true;
+}
+```
+
+### NixOS: remote host-based setup
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.aiagent = {
+    opencode = {
+      enable = true;
+      domain = "agent.dev.internal";
+      serverPasswordFile = "/run/secrets/opencode-password";
+      serverUsername = "michael";
+    };
+
+    openvscode = {
+      enable = true;
+      domain = "code.dev.internal";
+    };
+
+    nginx = {
+      enable = true;
+      listenAddress = "100.64.0.10";
+      port = 8123;
+    };
+  };
+}
+```
+
+### NixOS: explicit OpenVSCode token
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.nixosModules.default ];
+
+  services.aiagent = {
+    openvscode = {
+      enable = true;
+      connectionTokenFile = "/run/secrets/openvscode-token";
+    };
+
+    nginx = {
+      enable = true;
+      listenAddress = "100.64.0.10";
+      port = 8123;
+    };
+  };
+}
+```
+
+## MCP and skills
+
+`services.aiagent.opencode` keeps the existing MCP and skills controls.
 
 ### Enable OpenPencil MCP only
 
 ```nix
 {
-  services.opencode.mcp.openPencil = {
+  services.aiagent.opencode.mcp.openPencil = {
     enable = true;
     url = "http://127.0.0.1:3100/mcp";
   };
@@ -171,13 +314,13 @@ For the default OpenVSCode backend, prefer `serverPasswordFile` so the token can
 ```
 
 The default URL matches the MCP endpoint that `ZSeven-W/openpencil` exposes from a running desktop or web instance.
-`services.opencode.mcp.openPencil.package` and `services.opencode.mcp.openPencil.root` are now deprecated and ignored.
+`services.aiagent.opencode.mcp.openPencil.package` and `services.aiagent.opencode.mcp.openPencil.root` are deprecated and ignored.
 
 ### Enable Banani MCP
 
 ```nix
 {
-  services.opencode = {
+  services.aiagent.opencode = {
     mcp.banani = {
       enable = true;
       url = "https://app.banani.co/api/mcp/mcp";
@@ -194,18 +337,16 @@ Banani is wired as a remote MCP entry named `banani`. Evaluation fails if Banani
 
 ```nix
 {
-  services.opencode.skills.openPencil.enable = true;
+  services.aiagent.opencode.skills.openPencil.enable = true;
 }
 ```
 
-The packaged skill teaches opencode about `.op` files, the `op` CLI, and the layered MCP workflow used by `ZSeven-W/openpencil`.
-
 ### Linux virtual display for computer-use-mcp
 
-Both the Home Manager and NixOS modules expose:
+Both modules expose:
 
 ```nix
-services.opencode.mcp.computerUse.virtualDisplay = {
+services.aiagent.opencode.mcp.computerUse.virtualDisplay = {
   enable = true;
   fullDesktop = true;
   display = null;
@@ -225,191 +366,20 @@ services.opencode.mcp.computerUse.virtualDisplay = {
 
 When `browser.enable = true`, the Linux service launcher starts the configured Chromium wrapper inside the managed virtual desktop.
 
-### Enable both OpenPencil additions
+## Bundled runtime additions
 
-```nix
-{
-  services.opencode = {
-    mcp.openPencil = {
-      enable = true;
-      url = "http://127.0.0.1:3100/mcp";
-    };
-
-    skills.openPencil.enable = true;
-  };
-}
-```
-
-## Password sources
-
-### Password from file
-
-```nix
-{
-  services.opencode = {
-    enable = true;
-    serverPasswordFile = "/run/secrets/opencode-password";
-  };
-}
-```
-
-### Password from `extraEnv`
-
-```nix
-{
-  services.opencode = {
-    enable = true;
-    extraEnv = {
-      OPENCODE_SERVER_PASSWORD = "secret";
-    };
-  };
-}
-```
-
-## Examples
-
-### Home Manager: minimal
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
-
-  services.opencode = {
-    enable = true;
-    web.enable = true;
-  };
-}
-```
-
-`computer-use-mcp` is enabled by default. On Linux it still needs X11, but you can now either point `services.opencode.mcp.computerUse.virtualDisplay.display` at an existing session or enable `services.opencode.mcp.computerUse.virtualDisplay.fullDesktop` for a managed virtual desktop.
-
-### Home Manager: network-accessible service with password file
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
-
-  services.opencode = {
-    enable = true;
-    serverPasswordFile = "/run/secrets/opencode-password";
-    serverUsername = "michael";
-
-    web = {
-      enable = true;
-      hostname = "0.0.0.0";
-      port = 4096;
-    };
-  };
-}
-```
-
-If `web.hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
-
-### Home Manager: extra config and extra environment
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
-
-  services.opencode = {
-    enable = true;
-
-    extraConfig = {
-      model = "anthropic/claude-sonnet-4-5";
-      server.cors = [ "https://example.com" ];
-    };
-
-    extraEnv = {
-      ANTHROPIC_API_KEY = "...";
-      OPENCODE_SERVER_USERNAME = "opencode";
-      OPENCODE_SERVER_PASSWORD = "secret";
-    };
-  };
-}
-```
-
-### Home Manager: run the VS Code web service too
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
-
-  services.opencode = {
-    enable = true;
-    serverPasswordFile = "/run/secrets/opencode-password";
-
-    codeServer = {
-      enable = true;
-      port = 9998;
-    };
-  };
-}
-```
-
-### NixOS: minimal
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.nixosModules.default ];
-
-  services.opencode.enable = true;
-}
-```
-
-The NixOS service runs `opencode serve` through the wrapped package with `computer-use-mcp` enabled by default. On Linux you can now either reuse an existing X11 `DISPLAY` or let the service manage an Xvfb/Openbox desktop.
-
-### NixOS: network-accessible service with password file
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.nixosModules.default ];
-
-  services.opencode = {
-    enable = true;
-    hostname = "0.0.0.0";
-    port = 4096;
-    serverPasswordFile = "/run/secrets/opencode-password";
-    serverUsername = "michael";
-  };
-}
-```
-
-If `hostname = "0.0.0.0"` and no password is configured, evaluation will fail.
-
-### NixOS: extra environment
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.nixosModules.default ];
-
-  services.opencode = {
-    enable = true;
-    extraEnv = {
-      ANTHROPIC_API_KEY = "...";
-      OPENCODE_SERVER_USERNAME = "opencode";
-      OPENCODE_SERVER_PASSWORD = "secret";
-    };
-  };
-}
-```
-
-### NixOS: run the VS Code web service too
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.nixosModules.default ];
-
-  services.opencode = {
-    enable = true;
-    serverPasswordFile = "/run/secrets/opencode-password";
-
-    codeServer = {
-      enable = true;
-      port = 9998;
-    };
-  };
-}
-```
+- bundled custom agents are generated from `nix/config/agents/` and currently expose the `flake-setup`, `opencode-agent-manager`, and `opencode-manager` families
+- the wrapper exports `OPENCODE_TUI_CONFIG` with bundled `tui.json` keybinds
+- the wrapper exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
+- if `OPENCODE_SERVE_URL` is set, the wrapper runs `opencode attach "$OPENCODE_SERVE_URL" --dir "$PWD"`
+- `context7` is enabled by default as a remote MCP at `https://mcp.context7.com/mcp`
+- `computer-use-mcp` is enabled by default as a local packaged MCP
+- Linux services can export a configured X11 `DISPLAY` to `computer-use-mcp` or manage a lightweight Xvfb/Openbox desktop
+- bundled skills are installed from `$out/share/opencode/skills`
+- the initial bundled skill is `devenv-2`
+- OpenPencil is enabled by default as a remote MCP at `http://127.0.0.1:3100/mcp`
+- Banani can be enabled as a remote MCP at `https://app.banani.co/api/mcp/mcp`
+- the optional OpenPencil skill comes from `ZSeven-W/openpencil-skill`
 
 ## Rango browser extension
 
@@ -418,7 +388,3 @@ When `computer-use-mcp` is enabled, the wrapper prints a reminder to install the
 https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb
 
 For the managed Linux virtual desktop flow, this repository also exposes `packages.<system>.chromium-with-rango`. It wraps Chromium and loads an unpacked packaged Rango extension from `packages.<system>.rango-extension`. This is intended for the managed virtual desktop/browser flow only, and it uses a local Chromium profile directory instead of a Chrome Web Store install.
-
-# Possible additions
-
-* There is a claude solution that uses a plugin and then anthropic sdk using [Meridian](https://github.com/rynfar/meridian), this is the [opencode-with-claude](https://github.com/ianjwhite99/opencode-with-claude) plugin.  Might add that in the future.

@@ -13,6 +13,74 @@ rec {
 
   inherit mkEnvExports;
 
+  hasPasswordSource =
+    serverPasswordFile: extraEnv: serverPasswordFile != null || extraEnv ? OPENCODE_SERVER_PASSWORD;
+
+  normalizeLocalHost = hostname: if hostname == "0.0.0.0" then "127.0.0.1" else hostname;
+
+  renderNginxConfig =
+    {
+      listenAddress,
+      port,
+      routes,
+      stateDir,
+      extraConfig ? "",
+    }:
+    let
+      renderServer = route: ''
+        server {
+          listen ${listenAddress}:${toString port};
+          server_name ${route.domain};
+
+          location / {
+            proxy_pass ${route.upstream};
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_buffering off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+          }
+        }
+      '';
+
+      serverBlocks = lib.concatMapStringsSep "\n\n" renderServer routes;
+    in
+    ''
+      pid ${stateDir}/nginx.pid;
+      error_log stderr notice;
+
+      events {}
+
+      http {
+        access_log off;
+        client_body_temp_path ${stateDir}/client_body_temp;
+        proxy_temp_path ${stateDir}/proxy_temp;
+        fastcgi_temp_path ${stateDir}/fastcgi_temp;
+        uwsgi_temp_path ${stateDir}/uwsgi_temp;
+        scgi_temp_path ${stateDir}/scgi_temp;
+
+        map $http_upgrade $connection_upgrade {
+          default upgrade;
+          "" close;
+        }
+
+        ${serverBlocks}
+
+        server {
+          listen ${listenAddress}:${toString port} default_server;
+          server_name _;
+          return 444;
+        }
+
+        ${extraConfig}
+      }
+    '';
+
   getVirtualDisplay =
     virtualDisplay:
     if !(virtualDisplay.enable or false) then
@@ -35,9 +103,7 @@ rec {
     "--mdns"
   ];
 
-  hasReservedCodeServerArg = hasReservedArgs [
-    "--auth"
-    "--bind-addr"
+  hasReservedOpenVSCodeArg = hasReservedArgs [
     "--connection-token"
     "--connection-token-file"
     "--host"
@@ -59,22 +125,6 @@ rec {
       hostname
       "--port"
       (toString port)
-    ]
-    ++ extraArgs;
-
-  mkCodeServerArgs =
-    {
-      hostname,
-      port,
-      workingDirectory,
-      extraArgs ? [ ],
-    }:
-    [
-      "--auth"
-      "password"
-      "--bind-addr"
-      "${hostname}:${toString port}"
-      workingDirectory
     ]
     ++ extraArgs;
 
@@ -120,8 +170,7 @@ rec {
       message,
     }:
     {
-      assertion =
-        hostname != "0.0.0.0" || serverPasswordFile != null || extraEnv ? OPENCODE_SERVER_PASSWORD;
+      assertion = hostname != "0.0.0.0" || hasPasswordSource serverPasswordFile extraEnv;
       inherit message;
     };
 
@@ -135,13 +184,13 @@ rec {
       inherit message;
     };
 
-  mkReservedCodeServerArgsAssertion =
+  mkReservedOpenVSCodeArgsAssertion =
     {
       extraArgs,
       message,
     }:
     {
-      assertion = !(hasReservedCodeServerArg extraArgs);
+      assertion = !(hasReservedOpenVSCodeArg extraArgs);
       inherit message;
     };
 
@@ -154,6 +203,7 @@ rec {
       serverPasswordFile ? null,
       password ? null,
       passwordEnvVar ? "OPENCODE_SERVER_PASSWORD",
+      preRun ? "",
       extraExecArgs ? "",
       virtualDisplay ? {
         enable = false;
@@ -183,6 +233,8 @@ rec {
         fi
         export ${passwordEnvVar}="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg (toString serverPasswordFile)})"
       ''}
+
+      ${preRun}
 
       ${lib.optionalString virtualDisplayEnabled ''
         export DISPLAY=${lib.escapeShellArg virtualDisplayValue}
@@ -215,7 +267,7 @@ rec {
         display_lock="/tmp/.X$display_number-lock"
 
         if ${pkgs.xorg.xdpyinfo}/bin/xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
-          printf '%s\n' "Managed virtual display $DISPLAY is already active; choose a different services.opencode.mcp.computerUse.virtualDisplay.display." >&2
+          printf '%s\n' "Managed virtual display $DISPLAY is already active; choose a different services.aiagent.opencode.mcp.computerUse.virtualDisplay.display." >&2
           exit 1
         fi
 
@@ -262,7 +314,7 @@ rec {
       ''}
     '';
 
-  mkCodeEditorServiceLauncher =
+  mkOpenVSCodeServiceLauncher =
     {
       pkgs,
       package,
@@ -270,42 +322,57 @@ rec {
       port,
       workingDirectory,
       extraArgs ? [ ],
-      serverPasswordFile ? null,
-      password ? null,
-      name ? "code-editor-service",
+      connectionTokenFile ? null,
+      connectionToken ? null,
+      name ? "openvscode-service",
     }:
     let
-      programName = builtins.baseNameOf (lib.getExe package);
-      useOpenVSCodeServer = programName == "openvscode-server";
-      useInlineConnectionToken = useOpenVSCodeServer && serverPasswordFile == null && password != null;
+      useInlineConnectionToken = connectionTokenFile == null && connectionToken != null;
     in
     mkServiceLauncher {
       inherit pkgs package name;
-      serverPasswordFile = if useOpenVSCodeServer then null else serverPasswordFile;
-      password =
-        if useOpenVSCodeServer then if useInlineConnectionToken then password else null else password;
-      passwordEnvVar = if useOpenVSCodeServer then "OPENCODE_SERVER_PASSWORD" else "PASSWORD";
-      args =
-        if useOpenVSCodeServer then
-          mkOpenVSCodeServerArgs {
-            inherit
-              hostname
-              port
-              workingDirectory
-              extraArgs
-              ;
-            connectionTokenFile = serverPasswordFile;
-          }
-        else
-          mkCodeServerArgs {
-            inherit
-              hostname
-              port
-              workingDirectory
-              extraArgs
-              ;
-          };
+      serverPasswordFile = connectionTokenFile;
+      password = if useInlineConnectionToken then connectionToken else null;
+      passwordEnvVar = "OPENCODE_SERVER_PASSWORD";
+      args = mkOpenVSCodeServerArgs {
+        inherit
+          hostname
+          port
+          workingDirectory
+          extraArgs
+          connectionTokenFile
+          ;
+      };
       extraExecArgs =
         if useInlineConnectionToken then " --connection-token \"$OPENCODE_SERVER_PASSWORD\"" else "";
+    };
+
+  mkNginxServiceLauncher =
+    {
+      pkgs,
+      package,
+      configFile,
+      stateDir,
+      name ? "nginx-service",
+    }:
+    mkServiceLauncher {
+      inherit pkgs package name;
+      args = [
+        "-p"
+        stateDir
+        "-c"
+        configFile
+        "-g"
+        "daemon off;"
+      ];
+      preRun = ''
+        mkdir -p \
+          ${lib.escapeShellArg stateDir} \
+          ${lib.escapeShellArg "${stateDir}/client_body_temp"} \
+          ${lib.escapeShellArg "${stateDir}/proxy_temp"} \
+          ${lib.escapeShellArg "${stateDir}/fastcgi_temp"} \
+          ${lib.escapeShellArg "${stateDir}/uwsgi_temp"} \
+          ${lib.escapeShellArg "${stateDir}/scgi_temp"}
+      '';
     };
 }

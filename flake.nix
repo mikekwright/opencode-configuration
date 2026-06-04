@@ -1,5 +1,5 @@
 {
-  description = "Run opencode with declarative MCP and service modules";
+  description = "Package opencode and expose aiagent service modules";
 
   inputs = {
     # Opencode 15.3 (May 18th, 2026)
@@ -12,7 +12,7 @@
   };
 
   outputs =
-    inputs@{
+    {
       self,
       nixpkgs,
       home-manager,
@@ -60,8 +60,6 @@
 
       mkOpenPencilSkillPackage = pkgs: pkgs.callPackage ./nix/packages/open-pencil-skill.nix { };
 
-      mkCodeServerSupported = pkgs: lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.code-server;
-
       mkDefaultPackage =
         pkgs:
         let
@@ -104,13 +102,25 @@
             modules = [
               homeManagerModule
               {
-                home.username = "opencode";
-                home.homeDirectory = homeDirectory;
-                home.stateVersion = "24.11";
+                home = {
+                  username = "opencode";
+                  inherit homeDirectory;
+                  stateVersion = "24.11";
+                };
 
-                services.opencode = {
-                  enable = true;
-                  web.enable = true;
+                services.aiagent = {
+                  opencode = {
+                    enable = true;
+                    domain = "agent.example.test";
+                    extraEnv.OPENCODE_SERVER_PASSWORD = "secret";
+                  };
+
+                  openvscode = {
+                    enable = true;
+                    domain = "code.example.test";
+                  };
+
+                  nginx.enable = true;
                 };
               }
             ];
@@ -127,7 +137,21 @@
               nixosModule
               {
                 system.stateVersion = "24.11";
-                services.opencode.enable = true;
+
+                services.aiagent = {
+                  opencode = {
+                    enable = true;
+                    domain = "agent.example.test";
+                    extraEnv.OPENCODE_SERVER_PASSWORD = "secret";
+                  };
+
+                  openvscode = {
+                    enable = true;
+                    domain = "code.example.test";
+                  };
+
+                  nginx.enable = true;
+                };
               }
             ];
           };
@@ -141,7 +165,6 @@
         system:
         let
           pkgs = mkPkgs system;
-          codeServerSupported = mkCodeServerSupported pkgs;
           computerUsePackage = mkComputerUsePackage pkgs;
           rangoExtensionPackage = mkRangoExtensionPackage pkgs;
           chromiumWithRangoPackage = if pkgs.stdenv.isLinux then mkChromiumWithRangoPackage pkgs else null;
@@ -152,13 +175,11 @@
         {
           default = defaultPackage;
           opencode = defaultPackage;
+          inherit (pkgs) openvscode-server nginx;
           computer-use-mcp = computerUsePackage;
           rango-extension = rangoExtensionPackage;
           opencode-skills = bundledSkillsPackage;
           open-pencil-skill = openPencilSkillPackage;
-        }
-        // lib.optionalAttrs codeServerSupported {
-          code-server = pkgs.code-server;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           chromium-with-rango = chromiumWithRangoPackage;
@@ -168,8 +189,6 @@
       apps = forAllSystems (
         system:
         let
-          pkgs = mkPkgs system;
-          codeServerSupported = mkCodeServerSupported pkgs;
           program = "${self.packages.${system}.default}/bin/opencode";
         in
         {
@@ -184,12 +203,11 @@
             inherit program;
             meta.description = "Run the wrapped opencode CLI";
           };
-        }
-        // lib.optionalAttrs codeServerSupported {
-          code-server = {
+
+          openvscode-server = {
             type = "app";
-            program = lib.getExe self.packages.${system}.code-server;
-            meta.description = "Run code-server";
+            program = lib.getExe self.packages.${system}.openvscode-server;
+            meta.description = "Run OpenVSCode Server";
           };
         }
       );
@@ -206,6 +224,8 @@
               pkgs.nixfmt
               pkgs.nodejs
               self.packages.${system}.opencode
+              self.packages.${system}.openvscode-server
+              self.packages.${system}.nginx
               pkgs.statix
               self.packages.${system}.computer-use-mcp
             ];
@@ -217,18 +237,16 @@
         system:
         let
           pkgs = mkPkgs system;
-          codeServerSupported = mkCodeServerSupported pkgs;
         in
         {
           default = self.packages.${system}.default;
+          openvscode-server = self.packages.${system}.openvscode-server;
+          nginx = self.packages.${system}.nginx;
           computer-use-mcp = self.packages.${system}.computer-use-mcp;
           rango-extension = self.packages.${system}.rango-extension;
           opencode-skills = self.packages.${system}.opencode-skills;
           open-pencil-skill = self.packages.${system}.open-pencil-skill;
           home-manager = mkHomeManagerCheck pkgs;
-        }
-        // lib.optionalAttrs codeServerSupported {
-          code-server = self.packages.${system}.code-server;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           chromium-with-rango = self.packages.${system}.chromium-with-rango;
