@@ -16,7 +16,7 @@ The `opencode` wrapper:
 - adds the local `computer-use-mcp` server declaratively
 - can add `DISPLAY` to the local `computer-use-mcp` runtime config when Linux virtual display support is enabled
 - can add the ZSeven-W OpenPencil MCP endpoint declaratively
-- can add the Banani MCP endpoint declaratively with an API key from `extraEnv.BANANI_API_KEY`
+- can add the Banani MCP endpoint declaratively with an API key from `services.aiagent.extraEnvs` or `services.aiagent.opencode.extraEnv`
 - attaches to `OPENCODE_SERVE_URL` with `opencode attach ... --dir "$PWD"` when requested
 - prints the Rango extension reminder when computer-use is enabled
 
@@ -24,42 +24,32 @@ The `opencode` wrapper:
 
 OpenCode merges configuration sources instead of replacing them. The wrapper does not set `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `HOME`, or `XDG_CONFIG_HOME`, so normal discovery still applies for `~/.config/opencode/opencode.json`, project `opencode.json`, and `.opencode/`. The bundled Nix config is added as the inline `OPENCODE_CONFIG_CONTENT` layer, so standard locations are still read, but bundled keys win on conflicts.
 
-## Service modules
+## Module shape
 
 The public module interface is `services.aiagent`.
 
-- `services.aiagent.opencode` manages the wrapped `opencode serve` service
-- `services.aiagent.openvscode` manages `openvscode-server`
-- `services.aiagent.nginx` manages a reverse proxy that routes by `Host` header
+- `services.aiagent.opencode` manages package selection plus wrapper config such as MCP, skills, extra config, and wrapper env
+- `services.aiagent.openvscode` manages package selection for `openvscode-server`
+- `services.aiagent.servers.opencode` manages the `opencode serve` background service
+- `services.aiagent.servers.openvscode` manages the `openvscode-server` background service
+- `services.aiagent.extraEnvs` is shared service environment passed into all launchers and used as the base env for the wrapped `opencode` package
 - Home Manager uses launchd on Darwin and systemd user services on Linux
 - NixOS uses systemd services
 
-The intended remote topology is:
+This keeps package installation separate from service lifecycle while preserving the existing wrapper/config-layering architecture for OpenCode.
 
-```text
-tailnet DNS -> nginx -> Host: <opencode domain> -> opencode
-tailnet DNS -> nginx -> Host: <openvscode domain> -> openvscode-server
-```
+## Direct binding
 
-The modules deliberately keep:
+The managed stack now binds services directly instead of generating a reverse proxy layer.
 
-- `opencode` on its wrapper/config-layering stack
-- `openvscode-server` outside the wrapper stack
-- `nginx` as infrastructure around the two backends
+- `services.aiagent.servers.opencode.hostname` and `services.aiagent.servers.openvscode.hostname` default to loopback
+- each service also supports `hostname = "tailscale"`
+- the launcher resolves `tailscale ip -4` at service start
+- if the `tailscale` CLI is not available in `PATH`, or no IPv4 address is returned, the service logs a message and fails to start
+- enabled services must use distinct ports
+- non-loopback OpenCode binds require a password source
 
-That separation preserves the existing opencode wrapper architecture instead of mixing proxy concerns into the application package.
-
-## Host-based routing
-
-`services.aiagent.opencode.domain` and `services.aiagent.openvscode.domain` are consumed by the generated nginx config.
-
-- enabled domains must be unique
-- both domains are expected to resolve to the same nginx listener
-- backends default to loopback
-- nginx can bind to `listenAddress = "tailscale"` by resolving `tailscale ip -4` at service start, with `127.0.0.1` as the fallback
-- nginx is the only service intended to bind beyond loopback
-
-The current design does not manage `tailscale serve`, DNS, or TLS certificates for custom domains. Those are expected to be handled outside this flake.
+The current design does not manage `tailscale serve`, DNS, TLS certificates, or any reverse proxy.
 
 ## Platform defaults
 
