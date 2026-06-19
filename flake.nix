@@ -2,8 +2,8 @@
   description = "Package opencode and expose aiagent service modules";
 
   inputs = {
-    # Opencode 15.3 (May 18th, 2026)
-    nixpkgs.url = "github:NixOS/nixpkgs/d8a466512a138669b018648da28062bbf3ef1ea4";
+    # Opencode 1.17.8 (June 19th, 2026)
+    nixpkgs.url = "github:NixOS/nixpkgs/59cc759eee14cdbdc52f52531a19f415b3e1dd8c";
 
     home-manager = {
       url = "github:nix-community/home-manager";
