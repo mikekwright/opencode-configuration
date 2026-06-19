@@ -5,6 +5,12 @@ let
     lib.concatStringsSep "\n" (
       lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg (toString value)}") envVars
     );
+
+  loopbackBindAddresses = [
+    "127.0.0.1"
+    "::1"
+    "localhost"
+  ];
 in
 rec {
   rangoExtensionUrl = "https://chromewebstore.google.com/detail/rango/lnemjdnjjofijemhdogofbpcedhgcpmb";
@@ -16,70 +22,7 @@ rec {
   hasPasswordSource =
     serverPasswordFile: extraEnv: serverPasswordFile != null || extraEnv ? OPENCODE_SERVER_PASSWORD;
 
-  normalizeLocalHost = hostname: if hostname == "0.0.0.0" then "127.0.0.1" else hostname;
-
-  renderNginxConfig =
-    {
-      listenAddress,
-      port,
-      routes,
-      stateDir,
-      extraConfig ? "",
-    }:
-    let
-      renderServer = route: ''
-        server {
-          listen ${listenAddress}:${toString port};
-          server_name ${route.domain};
-
-          location / {
-            proxy_pass ${route.upstream};
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
-            proxy_buffering off;
-            proxy_read_timeout 3600s;
-            proxy_send_timeout 3600s;
-          }
-        }
-      '';
-
-      serverBlocks = lib.concatMapStringsSep "\n\n" renderServer routes;
-    in
-    ''
-      pid ${stateDir}/nginx.pid;
-      error_log stderr notice;
-
-      events {}
-
-      http {
-        access_log off;
-        client_body_temp_path ${stateDir}/client_body_temp;
-        proxy_temp_path ${stateDir}/proxy_temp;
-        fastcgi_temp_path ${stateDir}/fastcgi_temp;
-        uwsgi_temp_path ${stateDir}/uwsgi_temp;
-        scgi_temp_path ${stateDir}/scgi_temp;
-
-        map $http_upgrade $connection_upgrade {
-          default upgrade;
-          "" close;
-        }
-
-        ${serverBlocks}
-
-        server {
-          listen ${listenAddress}:${toString port} default_server;
-          server_name _;
-          return 444;
-        }
-
-        ${extraConfig}
-      }
-    '';
+  isLoopbackBindAddress = bindAddress: lib.elem bindAddress loopbackBindAddresses;
 
   getVirtualDisplay =
     virtualDisplay:
@@ -113,42 +56,40 @@ rec {
     "--without-connection-token"
   ];
 
-  mkServeArgs =
+  mkServeCommand =
     {
-      hostname,
+      package,
       port,
       extraArgs ? [ ],
+      bindAddressEnvVar ? "AIAGENT_BIND_ADDRESS",
     }:
-    [
-      "serve"
-      "--hostname"
-      hostname
-      "--port"
-      (toString port)
-    ]
-    ++ extraArgs;
+    let
+      extraArgsString = lib.optionalString (extraArgs != [ ]) " ${lib.escapeShellArgs extraArgs}";
+      bindAddressRef = ''"${"$"}${bindAddressEnvVar}"'';
+    in
+    "exec ${lib.getExe package} serve --hostname ${bindAddressRef} --port ${lib.escapeShellArg (toString port)}${extraArgsString}";
 
-  mkOpenVSCodeServerArgs =
+  mkOpenVSCodeServerCommand =
     {
-      hostname,
+      package,
       port,
       workingDirectory,
       extraArgs ? [ ],
       connectionTokenFile ? null,
+      connectionTokenEnvVar ? null,
+      bindAddressEnvVar ? "AIAGENT_BIND_ADDRESS",
     }:
-    [
-      "--accept-server-license-terms"
-      "--host"
-      hostname
-      "--port"
-      (toString port)
-    ]
-    ++ lib.optionals (connectionTokenFile != null) [
-      "--connection-token-file"
-      (toString connectionTokenFile)
-    ]
-    ++ [ workingDirectory ]
-    ++ extraArgs;
+    let
+      extraArgsString = lib.optionalString (extraArgs != [ ]) " ${lib.escapeShellArgs extraArgs}";
+      bindAddressRef = ''"${"$"}${bindAddressEnvVar}"'';
+      connectionTokenFileArgs = lib.optionalString (
+        connectionTokenFile != null
+      ) " --connection-token-file ${lib.escapeShellArg (toString connectionTokenFile)}";
+      connectionTokenArgs = lib.optionalString (
+        connectionTokenEnvVar != null
+      ) " --connection-token \"${"$"}${connectionTokenEnvVar}\"";
+    in
+    "exec ${lib.getExe package} --accept-server-license-terms --host ${bindAddressRef} --port ${lib.escapeShellArg (toString port)}${connectionTokenFileArgs}${connectionTokenArgs} ${lib.escapeShellArg workingDirectory}${extraArgsString}";
 
   mkServiceEnv =
     {
@@ -162,35 +103,67 @@ rec {
       DISPLAY = display;
     };
 
+  mkBindAddressResolution =
+    {
+      bindAddress,
+      optionPath,
+      envVar ? "AIAGENT_BIND_ADDRESS",
+    }:
+    ''
+      ${envVar}=${lib.escapeShellArg bindAddress}
+
+      if [ "$${envVar}" = "tailscale" ]; then
+        if ! command -v tailscale >/dev/null 2>&1; then
+          printf '%s\n' ${lib.escapeShellArg "${optionPath} = \"tailscale\" requires the tailscale CLI to be available in PATH."} >&2
+          exit 1
+        fi
+
+        set -- $(tailscale ip -4 2>/dev/null)
+
+        if [ "$#" -lt 1 ]; then
+          printf '%s\n' ${lib.escapeShellArg "Failed to resolve a Tailscale IPv4 address for ${optionPath} = \"tailscale\"."} >&2
+          exit 1
+        fi
+
+        ${envVar}="$1"
+      fi
+
+      export ${envVar}
+    '';
+
   mkPasswordAssertion =
     {
-      hostname,
+      enable ? true,
+      bindAddress,
       serverPasswordFile,
       extraEnv,
       message,
     }:
     {
-      assertion = hostname != "0.0.0.0" || hasPasswordSource serverPasswordFile extraEnv;
+      assertion =
+        !enable || isLoopbackBindAddress bindAddress || hasPasswordSource serverPasswordFile extraEnv;
       inherit message;
     };
 
   mkReservedServeArgsAssertion =
     {
+      enable ? true,
       extraArgs,
       message,
     }:
     {
-      assertion = !(hasReservedServeArg extraArgs);
+      assertion = !enable || !(hasReservedServeArg extraArgs);
       inherit message;
     };
 
   mkReservedOpenVSCodeArgsAssertion =
     {
+      enable ? true,
       extraArgs,
       message,
     }:
     {
-      assertion = !(hasReservedOpenVSCodeArg extraArgs);
+      assertion = !enable || !(hasReservedOpenVSCodeArg extraArgs);
       inherit message;
     };
 
@@ -198,13 +171,13 @@ rec {
     {
       pkgs,
       package,
-      args,
+      args ? [ ],
+      command ? null,
       env ? { },
       serverPasswordFile ? null,
       password ? null,
       passwordEnvVar ? "OPENCODE_SERVER_PASSWORD",
       preRun ? "",
-      extraExecArgs ? "",
       virtualDisplay ? {
         enable = false;
       },
@@ -216,6 +189,14 @@ rec {
       virtualDisplayValue = virtualDisplay.display or null;
       launchBrowser = lib.attrByPath [ "browser" "enable" ] false virtualDisplay;
       browserPackage = lib.attrByPath [ "browser" "package" ] null virtualDisplay;
+      launchCommand =
+        if command != null then
+          command
+        else
+          let
+            argsString = lib.optionalString (args != [ ]) " ${lib.escapeShellArgs args}";
+          in
+          "exec ${lib.getExe package}${argsString}";
     in
     pkgs.writeShellScript name ''
       set -eu
@@ -239,6 +220,10 @@ rec {
       ${lib.optionalString virtualDisplayEnabled ''
         export DISPLAY=${lib.escapeShellArg virtualDisplayValue}
       ''}
+
+      run_main() {
+        ${launchCommand}
+      }
 
       ${lib.optionalString managedVirtualDesktop ''
         cleanup_managed_desktop() {
@@ -303,14 +288,14 @@ rec {
           browser_pid=$!
         ''}
 
-        ${lib.getExe package} ${lib.escapeShellArgs args}${extraExecArgs} &
-        opencode_pid=$!
-        wait "$opencode_pid"
+        run_main &
+        service_pid=$!
+        wait "$service_pid"
         exit $?
       ''}
 
       ${lib.optionalString (!managedVirtualDesktop) ''
-        exec ${lib.getExe package} ${lib.escapeShellArgs args}${extraExecArgs}
+        run_main
       ''}
     '';
 
@@ -324,55 +309,37 @@ rec {
       extraArgs ? [ ],
       connectionTokenFile ? null,
       connectionToken ? null,
+      env ? { },
       name ? "openvscode-service",
+      optionPath ? "services.aiagent.servers.openvscode.hostname",
     }:
     let
       useInlineConnectionToken = connectionTokenFile == null && connectionToken != null;
     in
     mkServiceLauncher {
-      inherit pkgs package name;
+      inherit
+        pkgs
+        package
+        name
+        env
+        ;
       serverPasswordFile = connectionTokenFile;
       password = if useInlineConnectionToken then connectionToken else null;
-      passwordEnvVar = "OPENCODE_SERVER_PASSWORD";
-      args = mkOpenVSCodeServerArgs {
+      passwordEnvVar = "AIAGENT_OPENVSCODE_CONNECTION_TOKEN";
+      preRun = mkBindAddressResolution {
+        bindAddress = hostname;
+        inherit optionPath;
+      };
+      command = mkOpenVSCodeServerCommand {
         inherit
-          hostname
+          package
           port
           workingDirectory
           extraArgs
           connectionTokenFile
           ;
+        connectionTokenEnvVar =
+          if useInlineConnectionToken then "AIAGENT_OPENVSCODE_CONNECTION_TOKEN" else null;
       };
-      extraExecArgs =
-        if useInlineConnectionToken then " --connection-token \"$OPENCODE_SERVER_PASSWORD\"" else "";
-    };
-
-  mkNginxServiceLauncher =
-    {
-      pkgs,
-      package,
-      configFile,
-      stateDir,
-      name ? "nginx-service",
-    }:
-    mkServiceLauncher {
-      inherit pkgs package name;
-      args = [
-        "-p"
-        stateDir
-        "-c"
-        configFile
-        "-g"
-        "daemon off;"
-      ];
-      preRun = ''
-        mkdir -p \
-          ${lib.escapeShellArg stateDir} \
-          ${lib.escapeShellArg "${stateDir}/client_body_temp"} \
-          ${lib.escapeShellArg "${stateDir}/proxy_temp"} \
-          ${lib.escapeShellArg "${stateDir}/fastcgi_temp"} \
-          ${lib.escapeShellArg "${stateDir}/uwsgi_temp"} \
-          ${lib.escapeShellArg "${stateDir}/scgi_temp"}
-      '';
     };
 }

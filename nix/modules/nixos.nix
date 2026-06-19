@@ -13,14 +13,14 @@ let
   cfg = config.services.aiagent;
   opencodeCfg = cfg.opencode;
   openvscodeCfg = cfg.openvscode;
-  nginxCfg = cfg.nginx;
+  opencodeServerCfg = cfg.servers.opencode;
+  openvscodeServerCfg = cfg.servers.openvscode;
 
   computerUseVirtualDisplay = opencodeCfg.mcp.computerUse.virtualDisplay;
   effectiveComputerUseDisplay = helpers.getVirtualDisplay computerUseVirtualDisplay;
 
   defaultPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
   defaultOpenVSCodePackage = self.packages.${pkgs.stdenv.hostPlatform.system}.openvscode-server;
-  defaultNginxPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.nginx;
   defaultBrowserPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.chromium-with-rango;
 
   baseOpencodePackage =
@@ -29,53 +29,37 @@ let
     else
       opencodeCfg.package;
 
-  packageExtraEnv = builtins.removeAttrs opencodeCfg.extraEnv (
-    lib.optional (opencodeCfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
-    ++ lib.optional (opencodeCfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
+  sharedEnv = cfg.extraEnvs;
+  effectiveOpencodeEnv = sharedEnv // opencodeCfg.extraEnv;
+
+  packageExtraEnv = builtins.removeAttrs effectiveOpencodeEnv (
+    lib.optional (opencodeServerCfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
+    ++ lib.optional (opencodeServerCfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
   );
 
-  hasOpencodePassword = helpers.hasPasswordSource opencodeCfg.serverPasswordFile opencodeCfg.extraEnv;
   hasOpenVSCodeToken =
-    openvscodeCfg.connectionTokenFile != null || openvscodeCfg.connectionToken != null;
+    openvscodeServerCfg.connectionTokenFile != null || openvscodeServerCfg.connectionToken != null;
   openvscodeProgramName = builtins.baseNameOf (lib.getExe openvscodeCfg.package);
 
+  wantsOpencodePackage = opencodeCfg.enable || opencodeServerCfg.enable;
+  wantsOpenVSCodePackage = openvscodeCfg.enable || openvscodeServerCfg.enable;
+  anyServerEnabled = opencodeServerCfg.enable || openvscodeServerCfg.enable;
+
   enabledPorts =
-    lib.optionals opencodeCfg.enable [ opencodeCfg.port ]
-    ++ lib.optionals openvscodeCfg.enable [ openvscodeCfg.port ]
-    ++ lib.optionals nginxCfg.enable [ nginxCfg.port ];
+    lib.optionals opencodeServerCfg.enable [ opencodeServerCfg.port ]
+    ++ lib.optionals openvscodeServerCfg.enable [ openvscodeServerCfg.port ];
 
-  enabledDomains =
-    lib.optionals (opencodeCfg.enable && opencodeCfg.domain != null) [ opencodeCfg.domain ]
-    ++ lib.optionals (openvscodeCfg.enable && openvscodeCfg.domain != null) [ openvscodeCfg.domain ];
-
-  nginxRoutes =
-    lib.optionals (opencodeCfg.enable && opencodeCfg.domain != null) [
-      {
-        inherit (opencodeCfg) domain;
-        upstream = "http://${helpers.normalizeLocalHost opencodeCfg.hostname}:${toString opencodeCfg.port}";
-      }
-    ]
-    ++ lib.optionals (openvscodeCfg.enable && openvscodeCfg.domain != null) [
-      {
-        inherit (openvscodeCfg) domain;
-        upstream = "http://${helpers.normalizeLocalHost openvscodeCfg.hostname}:${toString openvscodeCfg.port}";
-      }
-    ];
-
-  nginxStateDir = "/var/lib/aiagent/nginx";
-  nginxConfigFile = pkgs.writeText "aiagent-nginx.conf" (
-    helpers.renderNginxConfig {
-      inherit (nginxCfg) listenAddress port extraConfig;
-      routes = nginxRoutes;
-      stateDir = nginxStateDir;
-    }
-  );
+  serviceHome =
+    if opencodeServerCfg.enable then
+      opencodeServerCfg.workingDirectory
+    else
+      openvscodeServerCfg.workingDirectory;
 
   managedPackage = mkOpencodePackage {
     inherit pkgs;
     opencodePackage = baseOpencodePackage;
     mcp = {
-      enable = opencodeCfg.mcp.enable;
+      inherit (opencodeCfg.mcp) enable;
       computerUse = {
         inherit (opencodeCfg.mcp.computerUse) enable package;
         virtualDisplay = {
@@ -104,7 +88,7 @@ let
   opencodeLauncher = helpers.mkServiceLauncher {
     inherit pkgs;
     package = managedPackage;
-    inherit (opencodeCfg) serverPasswordFile;
+    inherit (opencodeServerCfg) serverPasswordFile;
     virtualDisplay = {
       inherit (computerUseVirtualDisplay) enable fullDesktop;
       display = effectiveComputerUseDisplay;
@@ -113,19 +97,26 @@ let
       };
     };
     name = "opencode-systemd";
-    args = helpers.mkServeArgs {
-      inherit (opencodeCfg) hostname port extraArgs;
+    preRun = helpers.mkBindAddressResolution {
+      bindAddress = opencodeServerCfg.hostname;
+      optionPath = "services.aiagent.servers.opencode.hostname";
     };
-    env = helpers.mkServiceEnv {
-      inherit (opencodeCfg) serverUsername;
-      display = effectiveComputerUseDisplay;
+    command = helpers.mkServeCommand {
+      package = managedPackage;
+      inherit (opencodeServerCfg) port extraArgs;
     };
+    env =
+      sharedEnv
+      // helpers.mkServiceEnv {
+        inherit (opencodeServerCfg) serverUsername;
+        display = effectiveComputerUseDisplay;
+      };
   };
 
   openvscodeLauncher = helpers.mkOpenVSCodeServiceLauncher {
     inherit pkgs;
-    inherit (openvscodeCfg)
-      package
+    inherit (openvscodeCfg) package;
+    inherit (openvscodeServerCfg)
       hostname
       port
       workingDirectory
@@ -133,70 +124,258 @@ let
       connectionTokenFile
       connectionToken
       ;
+    env = sharedEnv;
     name = "openvscode-server-systemd";
+    optionPath = "services.aiagent.servers.openvscode.hostname";
   };
 
-  nginxLauncher = helpers.mkNginxServiceLauncher {
-    inherit pkgs;
-    inherit (nginxCfg) package;
-    configFile = nginxConfigFile;
-    stateDir = nginxStateDir;
-    name = "nginx-systemd";
-  };
-
-  anyServiceEnabled = opencodeCfg.enable || openvscodeCfg.enable || nginxCfg.enable;
+  renamedOptionModules = [
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "user"
+      ]
+      [
+        "services"
+        "aiagent"
+        "user"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "group"
+      ]
+      [
+        "services"
+        "aiagent"
+        "group"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "workingDirectory"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "workingDirectory"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "hostname"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "hostname"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "port"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "port"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "extraArgs"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "extraArgs"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "serverPasswordFile"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "serverPasswordFile"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "opencode"
+        "serverUsername"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "opencode"
+        "serverUsername"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "hostname"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "hostname"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "port"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "port"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "workingDirectory"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "workingDirectory"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "extraArgs"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "extraArgs"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "connectionTokenFile"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "connectionTokenFile"
+      ]
+    )
+    (lib.mkRenamedOptionModule
+      [
+        "services"
+        "aiagent"
+        "openvscode"
+        "connectionToken"
+      ]
+      [
+        "services"
+        "aiagent"
+        "servers"
+        "openvscode"
+        "connectionToken"
+      ]
+    )
+    (lib.mkRemovedOptionModule [ "services" "aiagent" "opencode" "domain" ] ''
+      services.aiagent.opencode.domain has been removed. Bind services.aiagent.servers.opencode directly instead.
+    '')
+    (lib.mkRemovedOptionModule [ "services" "aiagent" "openvscode" "domain" ] ''
+      services.aiagent.openvscode.domain has been removed. Bind services.aiagent.servers.openvscode directly instead.
+    '')
+    (lib.mkRemovedOptionModule [ "services" "aiagent" "nginx" ] ''
+      services.aiagent.nginx has been removed. Bind services.aiagent.servers.* directly or front them with your own reverse proxy.
+    '')
+  ];
 in
 {
+  imports = renamedOptionModules;
+
   options.services.aiagent = {
+    extraEnvs = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      description = "Extra environment variables exported by all aiagent services and used as the base environment for the wrapped opencode package.";
+    };
+
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "opencode";
+      description = "User account for the managed aiagent services.";
+    };
+
+    group = lib.mkOption {
+      type = lib.types.str;
+      default = "opencode";
+      description = "Group for the managed aiagent services.";
+    };
+
     opencode = {
-      enable = lib.mkEnableOption "the opencode background service";
+      enable = lib.mkEnableOption "installing the wrapped opencode package";
 
       package = lib.mkOption {
         type = lib.types.package;
         default = defaultPackage;
         description = "Opencode package to use. Wrapped opencode packages from this flake are unwrapped and rebuilt with the module configuration.";
-      };
-
-      user = lib.mkOption {
-        type = lib.types.str;
-        default = "opencode";
-        description = "User account for the managed aiagent services.";
-      };
-
-      group = lib.mkOption {
-        type = lib.types.str;
-        default = "opencode";
-        description = "Group for the managed aiagent services.";
-      };
-
-      workingDirectory = lib.mkOption {
-        type = lib.types.str;
-        default = "/var/lib/opencode";
-        description = "Working directory used by the opencode service.";
-      };
-
-      hostname = lib.mkOption {
-        type = lib.types.str;
-        default = "127.0.0.1";
-        description = "Hostname for `opencode serve`. Keep this on loopback when nginx is handling remote access.";
-      };
-
-      port = lib.mkOption {
-        type = lib.types.port;
-        default = 4096;
-        description = "Port for `opencode serve`.";
-      };
-
-      domain = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "Optional domain that nginx should route to the opencode backend.";
-      };
-
-      extraArgs = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ];
-        description = "Extra arguments passed to `opencode serve`.";
       };
 
       extraConfig = lib.mkOption {
@@ -208,19 +387,7 @@ in
       extraEnv = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         default = { };
-        description = "Extra environment variables exported by the wrapper. This can include `OPENCODE_SERVER_PASSWORD`, though `serverPasswordFile` is preferred for secrets.";
-      };
-
-      serverPasswordFile = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = "File containing the password for `OPENCODE_SERVER_PASSWORD`. Use this or `extraEnv.OPENCODE_SERVER_PASSWORD`. If both are set, the file value wins.";
-      };
-
-      serverUsername = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "Optional username for HTTP basic auth. Defaults to opencode when unset.";
+        description = "Additional environment variables exported by the wrapped opencode package after services.aiagent.extraEnvs. This can include OPENCODE_SERVER_PASSWORD, though serverPasswordFile is preferred for secrets.";
       };
 
       mcp = {
@@ -349,116 +516,125 @@ in
     };
 
     openvscode = {
-      enable = lib.mkEnableOption "the OpenVSCode Server background service";
+      enable = lib.mkEnableOption "installing the OpenVSCode Server package";
 
       package = lib.mkOption {
         type = lib.types.package;
         default = defaultOpenVSCodePackage;
-        description = "OpenVSCode Server package to run.";
-      };
-
-      hostname = lib.mkOption {
-        type = lib.types.str;
-        default = "127.0.0.1";
-        description = "Hostname for `openvscode-server --host`. Keep this on loopback when nginx is handling remote access.";
-      };
-
-      port = lib.mkOption {
-        type = lib.types.port;
-        default = 9998;
-        description = "Port for `openvscode-server --port`.";
-      };
-
-      workingDirectory = lib.mkOption {
-        type = lib.types.str;
-        default = opencodeCfg.workingDirectory;
-        description = "Working directory opened by OpenVSCode Server and used by the service.";
-      };
-
-      domain = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "Optional domain that nginx should route to the OpenVSCode Server backend.";
-      };
-
-      extraArgs = lib.mkOption {
-        type = lib.types.listOf lib.types.str;
-        default = [ ];
-        description = "Extra arguments passed to `openvscode-server`.";
-      };
-
-      connectionTokenFile = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = opencodeCfg.serverPasswordFile;
-        description = "File containing the OpenVSCode Server connection token. Defaults to the opencode password file when present.";
-      };
-
-      connectionToken = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = opencodeCfg.extraEnv.OPENCODE_SERVER_PASSWORD or null;
-        description = "Inline OpenVSCode Server connection token. Defaults to the opencode password when present.";
+        description = "OpenVSCode Server package to use.";
       };
     };
 
-    nginx = {
-      enable = lib.mkEnableOption "the nginx reverse proxy service";
+    servers = {
+      opencode = {
+        enable = lib.mkEnableOption "the opencode background service";
 
-      package = lib.mkOption {
-        type = lib.types.package;
-        default = defaultNginxPackage;
-        description = "nginx package to run.";
+        workingDirectory = lib.mkOption {
+          type = lib.types.str;
+          default = "/var/lib/opencode";
+          description = "Working directory used by the opencode service.";
+        };
+
+        hostname = lib.mkOption {
+          type = lib.types.str;
+          default = "127.0.0.1";
+          description = "Address for opencode serve. Set this to \"tailscale\" to resolve tailscale ip -4 when the service starts.";
+        };
+
+        port = lib.mkOption {
+          type = lib.types.port;
+          default = 4096;
+          description = "Port for opencode serve.";
+        };
+
+        extraArgs = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          description = "Extra arguments passed to opencode serve.";
+        };
+
+        serverPasswordFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+          description = "File containing the password for OPENCODE_SERVER_PASSWORD. Use this or services.aiagent.extraEnvs.OPENCODE_SERVER_PASSWORD or services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD. If multiple values are set, the file value wins.";
+        };
+
+        serverUsername = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          description = "Optional username for HTTP basic auth. Defaults to opencode when unset.";
+        };
       };
 
-      listenAddress = lib.mkOption {
-        type = lib.types.str;
-        default = "127.0.0.1";
-        description = "Address that nginx listens on. For tailnet exposure, prefer a Tailscale IP instead of `0.0.0.0` when possible.";
-      };
+      openvscode = {
+        enable = lib.mkEnableOption "the OpenVSCode Server background service";
 
-      port = lib.mkOption {
-        type = lib.types.port;
-        default = 8123;
-        description = "Port that nginx listens on.";
-      };
+        hostname = lib.mkOption {
+          type = lib.types.str;
+          default = "127.0.0.1";
+          description = "Address for openvscode-server. Set this to \"tailscale\" to resolve tailscale ip -4 when the service starts.";
+        };
 
-      extraConfig = lib.mkOption {
-        type = lib.types.lines;
-        default = "";
-        description = "Additional raw nginx config appended inside the generated `http {}` block.";
+        port = lib.mkOption {
+          type = lib.types.port;
+          default = 9998;
+          description = "Port for openvscode-server --port.";
+        };
+
+        workingDirectory = lib.mkOption {
+          type = lib.types.str;
+          default = opencodeServerCfg.workingDirectory;
+          description = "Working directory opened by OpenVSCode Server and used by the service.";
+        };
+
+        extraArgs = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          description = "Extra arguments passed to openvscode-server.";
+        };
+
+        connectionTokenFile = lib.mkOption {
+          type = lib.types.nullOr lib.types.path;
+          default = opencodeServerCfg.serverPasswordFile;
+          description = "File containing the OpenVSCode Server connection token. Defaults to the opencode password file when present.";
+        };
+
+        connectionToken = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = effectiveOpencodeEnv.OPENCODE_SERVER_PASSWORD or null;
+          description = "Inline OpenVSCode Server connection token. Defaults to the effective opencode password when present.";
+        };
       };
     };
   };
 
-  config = lib.mkIf anyServiceEnabled {
+  config = {
     assertions = [
       {
-        assertion = opencodeCfg.user != "root";
-        message = "services.aiagent.opencode.user must not be root.";
+        assertion = !anyServerEnabled || cfg.user != "root";
+        message = "services.aiagent.user must not be root.";
       }
       (helpers.mkPasswordAssertion {
-        inherit (opencodeCfg) hostname serverPasswordFile extraEnv;
-        message = "services.aiagent.opencode.hostname = \"0.0.0.0\" requires a password. Set services.aiagent.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD.";
+        inherit (opencodeServerCfg) enable serverPasswordFile;
+        bindAddress = opencodeServerCfg.hostname;
+        extraEnv = effectiveOpencodeEnv;
+        message = "services.aiagent.servers.opencode.hostname = \"tailscale\" or a non-loopback address requires a password. Set services.aiagent.servers.opencode.serverPasswordFile, services.aiagent.extraEnvs.OPENCODE_SERVER_PASSWORD, or services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD.";
       })
       (helpers.mkReservedServeArgsAssertion {
-        inherit (opencodeCfg) extraArgs;
-        message = "services.aiagent.opencode.extraArgs must not override hostname, port, or mdns. Use services.aiagent.opencode.hostname and services.aiagent.opencode.port instead.";
+        inherit (opencodeServerCfg) enable extraArgs;
+        message = "services.aiagent.servers.opencode.extraArgs must not override hostname, port, or mdns. Use services.aiagent.servers.opencode.hostname and services.aiagent.servers.opencode.port instead.";
       })
       {
-        assertion =
-          !(nginxCfg.enable && opencodeCfg.enable && opencodeCfg.domain != null) || hasOpencodePassword;
-        message = "services.aiagent.opencode.domain requires services.aiagent.opencode.serverPasswordFile or extraEnv.OPENCODE_SERVER_PASSWORD because nginx will expose opencode remotely.";
+        assertion = !wantsOpenVSCodePackage || openvscodeProgramName == "openvscode-server";
+        message = "services.aiagent.openvscode.package must provide the openvscode-server executable.";
       }
       {
-        assertion = !openvscodeCfg.enable || openvscodeProgramName == "openvscode-server";
-        message = "services.aiagent.openvscode.package must provide the `openvscode-server` executable.";
-      }
-      {
-        assertion = !openvscodeCfg.enable || hasOpenVSCodeToken;
-        message = "services.aiagent.openvscode.enable requires services.aiagent.openvscode.connectionTokenFile or connectionToken.";
+        assertion = !openvscodeServerCfg.enable || hasOpenVSCodeToken;
+        message = "services.aiagent.servers.openvscode.enable requires services.aiagent.servers.openvscode.connectionTokenFile or connectionToken.";
       }
       (helpers.mkReservedOpenVSCodeArgsAssertion {
-        inherit (openvscodeCfg) extraArgs;
-        message = "services.aiagent.openvscode.extraArgs must not override the service host, port, or connection-token flags. Use services.aiagent.openvscode.hostname and services.aiagent.openvscode.port instead.";
+        inherit (openvscodeServerCfg) enable extraArgs;
+        message = "services.aiagent.servers.openvscode.extraArgs must not override the service host, port, or connection-token flags. Use services.aiagent.servers.openvscode.hostname and services.aiagent.servers.openvscode.port instead.";
       })
       {
         assertion = !computerUseVirtualDisplay.enable || effectiveComputerUseDisplay != null;
@@ -472,20 +648,12 @@ in
       }
       {
         assertion =
-          !(opencodeCfg.mcp.enable && opencodeCfg.mcp.banani.enable) || opencodeCfg.extraEnv ? BANANI_API_KEY;
-        message = "services.aiagent.opencode.mcp.banani.enable requires extraEnv.BANANI_API_KEY.";
+          !(opencodeCfg.mcp.enable && opencodeCfg.mcp.banani.enable) || effectiveOpencodeEnv ? BANANI_API_KEY;
+        message = "services.aiagent.opencode.mcp.banani.enable requires services.aiagent.extraEnvs.BANANI_API_KEY or services.aiagent.opencode.extraEnv.BANANI_API_KEY.";
       }
       {
         assertion = lib.length enabledPorts == lib.length (lib.unique enabledPorts);
         message = "Enabled aiagent services must use distinct ports.";
-      }
-      {
-        assertion = lib.length enabledDomains == lib.length (lib.unique enabledDomains);
-        message = "services.aiagent.opencode.domain and services.aiagent.openvscode.domain must be unique.";
-      }
-      {
-        assertion = !nginxCfg.enable || nginxRoutes != [ ];
-        message = "services.aiagent.nginx.enable requires at least one enabled backend with a domain. Set services.aiagent.opencode.domain or services.aiagent.openvscode.domain.";
       }
     ];
 
@@ -499,68 +667,58 @@ in
       ''
       ++ lib.optional (opencodeCfg.mcp.enable && opencodeCfg.mcp.openPencil.root != null) ''
         services.aiagent.opencode.mcp.openPencil.root is ignored. ZSeven-W/openpencil does not use OPENPENCIL_MCP_ROOT.
-      ''
-      ++ lib.optional (opencodeCfg.domain != null && !nginxCfg.enable) ''
-        services.aiagent.opencode.domain is set but services.aiagent.nginx.enable is false, so the domain will not be routed anywhere.
-      ''
-      ++ lib.optional (openvscodeCfg.domain != null && !nginxCfg.enable) ''
-        services.aiagent.openvscode.domain is set but services.aiagent.nginx.enable is false, so the domain will not be routed anywhere.
-      ''
-      ++ lib.optional (nginxCfg.enable && nginxCfg.listenAddress == "0.0.0.0") ''
-        services.aiagent.nginx.listenAddress = "0.0.0.0" exposes nginx on every interface. Prefer binding directly to a Tailscale IP when possible.
       '';
 
     environment.systemPackages =
-      lib.optionals opencodeCfg.enable [ managedPackage ]
-      ++ lib.optionals openvscodeCfg.enable [ openvscodeCfg.package ]
-      ++ lib.optionals nginxCfg.enable [ nginxCfg.package ];
+      lib.optionals wantsOpencodePackage [ managedPackage ]
+      ++ lib.optionals wantsOpenVSCodePackage [ openvscodeCfg.package ];
 
-    users.groups = lib.optionalAttrs (opencodeCfg.group == "opencode") {
-      ${opencodeCfg.group} = { };
-    };
+    users.groups = lib.mkIf anyServerEnabled (
+      lib.optionalAttrs (cfg.group == "opencode") {
+        ${cfg.group} = { };
+      }
+    );
 
-    users.users = lib.optionalAttrs (opencodeCfg.user == "opencode") {
-      ${opencodeCfg.user} = {
-        isSystemUser = true;
-        inherit (opencodeCfg) group;
-        home = opencodeCfg.workingDirectory;
-        createHome = true;
-      };
-    };
+    users.users = lib.mkIf anyServerEnabled (
+      lib.optionalAttrs (cfg.user == "opencode") {
+        ${cfg.user} = {
+          isSystemUser = true;
+          inherit (cfg) group;
+          home = serviceHome;
+          createHome = true;
+        };
+      }
+    );
 
-    systemd.tmpfiles.rules = [
-      "d ${opencodeCfg.workingDirectory} 0750 ${opencodeCfg.user} ${opencodeCfg.group} -"
-      "d ${nginxStateDir} 0750 ${opencodeCfg.user} ${opencodeCfg.group} -"
-    ]
-    ++ lib.optional (
-      openvscodeCfg.enable && openvscodeCfg.workingDirectory != opencodeCfg.workingDirectory
-    ) "d ${openvscodeCfg.workingDirectory} 0750 ${opencodeCfg.user} ${opencodeCfg.group} -";
+    systemd.tmpfiles.rules =
+      lib.optionals opencodeServerCfg.enable [
+        "d ${opencodeServerCfg.workingDirectory} 0750 ${cfg.user} ${cfg.group} -"
+      ]
+      ++ lib.optionals (
+        openvscodeServerCfg.enable
+        && (
+          !opencodeServerCfg.enable
+          || openvscodeServerCfg.workingDirectory != opencodeServerCfg.workingDirectory
+        )
+      ) [ "d ${openvscodeServerCfg.workingDirectory} 0750 ${cfg.user} ${cfg.group} -" ];
 
     systemd.services =
-      lib.optionalAttrs opencodeCfg.enable
+      lib.optionalAttrs opencodeServerCfg.enable
         (linuxSystem.mkSystemService {
           name = "opencode";
           description = "OpenCode service";
           launcher = opencodeLauncher;
-          inherit (opencodeCfg) workingDirectory user group;
+          inherit (opencodeServerCfg) workingDirectory;
+          inherit (cfg) user group;
         }).systemd.services
       //
-        lib.optionalAttrs openvscodeCfg.enable
+        lib.optionalAttrs openvscodeServerCfg.enable
           (linuxSystem.mkSystemService {
             name = "openvscode-server";
             description = "OpenVSCode Server service";
             launcher = openvscodeLauncher;
-            inherit (openvscodeCfg) workingDirectory;
-            inherit (opencodeCfg) user group;
-          }).systemd.services
-      //
-        lib.optionalAttrs nginxCfg.enable
-          (linuxSystem.mkSystemService {
-            name = "nginx";
-            description = "nginx reverse proxy service";
-            launcher = nginxLauncher;
-            workingDirectory = nginxStateDir;
-            inherit (opencodeCfg) user group;
+            inherit (openvscodeServerCfg) workingDirectory;
+            inherit (cfg) user group;
           }).systemd.services;
   };
 }

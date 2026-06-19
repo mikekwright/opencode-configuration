@@ -1,6 +1,6 @@
 # opencode-configuration
 
-This flake packages `opencode`, `openvscode-server`, and `nginx`, then exposes Home Manager and NixOS modules under `services.aiagent` for a remote AI-first development machine.
+This flake packages `opencode` and `openvscode-server`, then exposes Home Manager and NixOS modules under `services.aiagent` for an AI-first development machine.
 
 ## Usage
 
@@ -33,7 +33,6 @@ nix run . -- serve
 - `packages.<system>.default` – wrapped `opencode`
 - `packages.<system>.opencode` – wrapped `opencode`
 - `packages.<system>.openvscode-server` – upstream `openvscode-server`
-- `packages.<system>.nginx` – upstream `nginx`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
 - `packages.<system>.rango-extension` – packaged unpacked Rango extension bundle
 - `packages.<system>.chromium-with-rango` – Linux-only Chromium wrapper for the managed virtual desktop flow
@@ -46,29 +45,27 @@ nix run . -- serve
 
 ## Service topology
 
-The managed stack is:
+The managed services bind directly:
 
 ```text
-tailnet DNS -> nginx -> Host: <opencode domain> -> opencode
-tailnet DNS -> nginx -> Host: <openvscode domain> -> openvscode-server
+client -> opencode
+client -> openvscode-server
 ```
 
 Typical defaults:
 
 - `opencode` listens on `127.0.0.1:4096`
 - `openvscode-server` listens on `127.0.0.1:9998`
-- `nginx` listens on `127.0.0.1:8123` unless you expose it explicitly
 
 This flake does **not** manage:
 
+- nginx
 - `tailscale serve`
 - Tailscale installation
 - DNS records
-- TLS certificates for custom domains
+- TLS certificates
 
-You are expected to point multiple domains at the same machine and nginx port, then let nginx route by `Host` header.
-
-For the most conservative setup, bind `services.aiagent.nginx.listenAddress` directly to the machine's Tailscale IP instead of `0.0.0.0`.
+Set `services.aiagent.servers.<name>.hostname = "tailscale"` to resolve `tailscale ip -4` when the service starts. If the `tailscale` CLI is not available in `PATH`, or no IPv4 address can be resolved, the service logs a message and fails to start.
 
 ## `services.aiagent`
 
@@ -77,24 +74,30 @@ The public module interface is:
 ```nix
 {
   services.aiagent = {
+    extraEnvs = {
+      OPENCODE_PLATFORM_TOKEN = "...";
+    };
+
     opencode = {
       enable = true;
-      hostname = "127.0.0.1";
-      port = 4096;
-      domain = "agent.example.internal";
     };
 
     openvscode = {
       enable = true;
-      hostname = "127.0.0.1";
-      port = 9998;
-      domain = "code.example.internal";
     };
 
-    nginx = {
-      enable = true;
-      listenAddress = "100.64.0.10";
-      port = 8123;
+    servers = {
+      opencode = {
+        enable = true;
+        hostname = "127.0.0.1";
+        port = 4096;
+      };
+
+      openvscode = {
+        enable = true;
+        hostname = "127.0.0.1";
+        port = 9998;
+      };
     };
   };
 }
@@ -102,11 +105,15 @@ The public module interface is:
 
 Behavior:
 
-- `services.aiagent.opencode.domain` tells nginx which host should proxy to `opencode`
-- `services.aiagent.openvscode.domain` tells nginx which host should proxy to `openvscode-server`
-- both domains must resolve to the same nginx listener
-- enabled services must use distinct ports
-- nginx requires at least one enabled backend with a domain
+- `services.aiagent.opencode.enable` installs the wrapped CLI without creating a service
+- `services.aiagent.openvscode.enable` installs `openvscode-server` without creating a service
+- `services.aiagent.servers.*.enable` creates the actual background service
+- enabling a server also installs the needed package automatically
+- `services.aiagent.extraEnvs` is exported to all services and used as the base environment for the wrapped `opencode` package
+- `services.aiagent.opencode.extraEnv` is applied after `extraEnvs`, so it wins on conflicts for the wrapped `opencode` package
+- Home Manager user services must use ports `>= 1024`
+
+Migration note: older configs that relied on `services.aiagent.opencode.enable = true;` or `services.aiagent.openvscode.enable = true;` to start services now need `services.aiagent.servers.opencode.enable = true;` or `services.aiagent.servers.openvscode.enable = true;` as well.
 
 ## Config layering
 
@@ -128,28 +135,27 @@ The wrapper intentionally does not override `HOME`, `XDG_CONFIG_HOME`, `OPENCODE
 
 OpenCode still uses its own password handling:
 
-- `services.aiagent.opencode.serverPasswordFile`
+- `services.aiagent.servers.opencode.serverPasswordFile`
+- `services.aiagent.extraEnvs.OPENCODE_SERVER_PASSWORD`
 - `services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD`
 
-If nginx exposes `services.aiagent.opencode.domain`, evaluation requires one of those password sources.
+If `services.aiagent.servers.opencode.hostname` is not loopback, evaluation requires one of those password sources.
 
 ### OpenVSCode Server
 
 OpenVSCode Server uses a connection token:
 
-- `services.aiagent.openvscode.connectionTokenFile`
-- `services.aiagent.openvscode.connectionToken`
+- `services.aiagent.servers.openvscode.connectionTokenFile`
+- `services.aiagent.servers.openvscode.connectionToken`
 
 Defaults:
 
-- `connectionTokenFile` defaults to `services.aiagent.opencode.serverPasswordFile`
-- `connectionToken` defaults to `services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD`
-
-So if you already configure an OpenCode password, OpenVSCode Server can reuse it automatically.
+- `connectionTokenFile` defaults to `services.aiagent.servers.opencode.serverPasswordFile`
+- `connectionToken` defaults to the effective OpenCode password from `services.aiagent.extraEnvs` plus `services.aiagent.opencode.extraEnv`
 
 ## Examples
 
-### Home Manager: local-only OpenCode
+### Home Manager: package-only OpenCode
 
 ```nix
 {
@@ -159,42 +165,33 @@ So if you already configure an OpenCode password, OpenVSCode Server can reuse it
 }
 ```
 
-`computer-use-mcp` is enabled by default. On Linux it still needs X11, but you can either point `services.aiagent.opencode.mcp.computerUse.virtualDisplay.display` at an existing session or enable `services.aiagent.opencode.mcp.computerUse.virtualDisplay.fullDesktop` for a managed virtual desktop.
-
-### Home Manager: remote host-based setup on a Tailscale IP
+### Home Manager: Tailscale-bound services
 
 ```nix
 {
   imports = [ inputs.opencode-configuration.homeManagerModules.default ];
 
   services.aiagent = {
-    opencode = {
-      enable = true;
-      domain = "agent.dev.internal";
-      serverPasswordFile = "/run/secrets/opencode-password";
-      serverUsername = "michael";
-    };
+    extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-    openvscode = {
-      enable = true;
-      domain = "code.dev.internal";
-    };
+    opencode.enable = true;
+    openvscode.enable = true;
 
-    nginx = {
-      enable = true;
-      listenAddress = "100.64.0.10";
-      port = 8123;
+    servers = {
+      opencode = {
+        enable = true;
+        hostname = "tailscale";
+        serverUsername = "michael";
+      };
+
+      openvscode = {
+        enable = true;
+        hostname = "tailscale";
+      };
     };
   };
 }
 ```
-
-Point both domains at `100.64.0.10`, then access:
-
-- `http://agent.dev.internal:8123`
-- `http://code.dev.internal:8123`
-
-Home Manager user services must use ports `>= 1024`.
 
 ### Home Manager: extra config and extra environment
 
@@ -202,19 +199,24 @@ Home Manager user services must use ports `>= 1024`.
 {
   imports = [ inputs.opencode-configuration.homeManagerModules.default ];
 
-  services.aiagent.opencode = {
-    enable = true;
-
-    extraConfig = {
-      model = "anthropic/claude-sonnet-4-5";
-      server.cors = [ "https://example.com" ];
-    };
-
-    extraEnv = {
+  services.aiagent = {
+    extraEnvs = {
       ANTHROPIC_API_KEY = "...";
-      OPENCODE_SERVER_USERNAME = "opencode";
-      OPENCODE_SERVER_PASSWORD = "secret";
+      OPENCODE_PLATFORM_TOKEN = "...";
     };
+
+    opencode = {
+      enable = true;
+
+      extraConfig = {
+        model = "anthropic/claude-sonnet-4-5";
+        server.cors = [ "https://example.com" ];
+      };
+
+      extraEnv.OPENCODE_SERVER_USERNAME = "opencode";
+    };
+
+    servers.opencode.enable = true;
   };
 }
 ```
@@ -226,20 +228,21 @@ Home Manager user services must use ports `>= 1024`.
   imports = [ inputs.opencode-configuration.homeManagerModules.default ];
 
   services.aiagent = {
-    opencode = {
-      enable = true;
-      serverPasswordFile = "/run/secrets/opencode-password";
-    };
+    opencode.enable = true;
 
-    openvscode = {
-      enable = true;
-      connectionTokenFile = "/run/secrets/openvscode-token";
+    servers = {
+      opencode.serverPasswordFile = "/run/secrets/opencode-password";
+
+      openvscode = {
+        enable = true;
+        connectionTokenFile = "/run/secrets/openvscode-token";
+      };
     };
   };
 }
 ```
 
-### NixOS: local-only OpenCode
+### NixOS: package-only OpenCode
 
 ```nix
 {
@@ -249,50 +252,29 @@ Home Manager user services must use ports `>= 1024`.
 }
 ```
 
-### NixOS: remote host-based setup
+### NixOS: direct service setup
 
 ```nix
 {
   imports = [ inputs.opencode-configuration.nixosModules.default ];
 
   services.aiagent = {
-    opencode = {
-      enable = true;
-      domain = "agent.dev.internal";
-      serverPasswordFile = "/run/secrets/opencode-password";
-      serverUsername = "michael";
-    };
+    extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-    openvscode = {
-      enable = true;
-      domain = "code.dev.internal";
-    };
+    opencode.enable = true;
+    openvscode.enable = true;
 
-    nginx = {
-      enable = true;
-      listenAddress = "100.64.0.10";
-      port = 8123;
-    };
-  };
-}
-```
+    servers = {
+      opencode = {
+        enable = true;
+        hostname = "100.64.0.10";
+        serverUsername = "michael";
+      };
 
-### NixOS: explicit OpenVSCode token
-
-```nix
-{
-  imports = [ inputs.opencode-configuration.nixosModules.default ];
-
-  services.aiagent = {
-    openvscode = {
-      enable = true;
-      connectionTokenFile = "/run/secrets/openvscode-token";
-    };
-
-    nginx = {
-      enable = true;
-      listenAddress = "100.64.0.10";
-      port = 8123;
+      openvscode = {
+        enable = true;
+        hostname = "tailscale";
+      };
     };
   };
 }
@@ -320,18 +302,18 @@ The default URL matches the MCP endpoint that `ZSeven-W/openpencil` exposes from
 
 ```nix
 {
-  services.aiagent.opencode = {
-    mcp.banani = {
+  services.aiagent = {
+    extraEnvs.BANANI_API_KEY = "...";
+
+    opencode.mcp.banani = {
       enable = true;
       url = "https://app.banani.co/api/mcp/mcp";
     };
-
-    extraEnv.BANANI_API_KEY = "...";
   };
 }
 ```
 
-Banani is wired as a remote MCP entry named `banani`. Evaluation fails if Banani is enabled without `extraEnv.BANANI_API_KEY`.
+Banani is wired as a remote MCP entry named `banani`. Evaluation fails if Banani is enabled without `services.aiagent.extraEnvs.BANANI_API_KEY` or `services.aiagent.opencode.extraEnv.BANANI_API_KEY`.
 
 ### Enable OpenPencil skill only
 
@@ -358,7 +340,7 @@ services.aiagent.opencode.mcp.computerUse.virtualDisplay = {
 ```
 
 - `enable` turns on Linux virtual display handling
-- `fullDesktop = true` starts a managed Xvfb + Openbox session
+- `fullDesktop = true` starts a managed Xvfb + Openbox session for the service launcher
 - `display` can point at an existing X11 display instead
 - if `fullDesktop = true` and `display = null`, the managed default is `:99`
 - evaluation fails when `virtualDisplay.enable = true` and neither `fullDesktop` nor `display` is set

@@ -109,18 +109,15 @@
                 };
 
                 services.aiagent = {
-                  opencode = {
-                    enable = true;
-                    domain = "agent.example.test";
-                    extraEnv.OPENCODE_SERVER_PASSWORD = "secret";
-                  };
+                  extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-                  openvscode = {
-                    enable = true;
-                    domain = "code.example.test";
-                  };
+                  opencode.enable = true;
+                  openvscode.enable = true;
 
-                  nginx.enable = true;
+                  servers = {
+                    opencode.enable = true;
+                    openvscode.enable = true;
+                  };
                 };
               }
             ];
@@ -139,18 +136,15 @@
                 system.stateVersion = "24.11";
 
                 services.aiagent = {
-                  opencode = {
-                    enable = true;
-                    domain = "agent.example.test";
-                    extraEnv.OPENCODE_SERVER_PASSWORD = "secret";
-                  };
+                  extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-                  openvscode = {
-                    enable = true;
-                    domain = "code.example.test";
-                  };
+                  opencode.enable = true;
+                  openvscode.enable = true;
 
-                  nginx.enable = true;
+                  servers = {
+                    opencode.enable = true;
+                    openvscode.enable = true;
+                  };
                 };
               }
             ];
@@ -175,7 +169,7 @@
         {
           default = defaultPackage;
           opencode = defaultPackage;
-          inherit (pkgs) openvscode-server nginx;
+          inherit (pkgs) openvscode-server;
           computer-use-mcp = computerUsePackage;
           rango-extension = rangoExtensionPackage;
           opencode-skills = bundledSkillsPackage;
@@ -225,7 +219,6 @@
               pkgs.nodejs
               self.packages.${system}.opencode
               self.packages.${system}.openvscode-server
-              self.packages.${system}.nginx
               pkgs.statix
               self.packages.${system}.computer-use-mcp
             ];
@@ -240,16 +233,17 @@
         in
         {
           default = self.packages.${system}.default;
-          openvscode-server = self.packages.${system}.openvscode-server;
-          nginx = self.packages.${system}.nginx;
-          computer-use-mcp = self.packages.${system}.computer-use-mcp;
-          rango-extension = self.packages.${system}.rango-extension;
-          opencode-skills = self.packages.${system}.opencode-skills;
-          open-pencil-skill = self.packages.${system}.open-pencil-skill;
+          inherit (self.packages.${system})
+            openvscode-server
+            computer-use-mcp
+            rango-extension
+            opencode-skills
+            open-pencil-skill
+            ;
           home-manager = mkHomeManagerCheck pkgs;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
-          chromium-with-rango = self.packages.${system}.chromium-with-rango;
+          inherit (self.packages.${system}) chromium-with-rango;
           nixos = mkNixosCheck pkgs;
         }
       );
