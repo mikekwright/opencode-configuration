@@ -11,6 +11,8 @@ rec {
 
   defaultManagedVirtualDisplay = ":99";
 
+  tailscaleListenAddressPlaceholder = "__AIAGENT_NGINX_LISTEN_ADDRESS__";
+
   inherit mkEnvExports;
 
   hasPasswordSource =
@@ -352,16 +354,21 @@ rec {
       pkgs,
       package,
       configFile,
+      listenAddress,
       stateDir,
       name ? "nginx-service",
     }:
+    let
+      runtimeConfigFile = "${stateDir}/nginx.conf";
+      useTailscaleListenAddress = listenAddress == "tailscale";
+    in
     mkServiceLauncher {
       inherit pkgs package name;
       args = [
         "-p"
         stateDir
         "-c"
-        configFile
+        runtimeConfigFile
         "-g"
         "daemon off;"
       ];
@@ -373,6 +380,20 @@ rec {
           ${lib.escapeShellArg "${stateDir}/fastcgi_temp"} \
           ${lib.escapeShellArg "${stateDir}/uwsgi_temp"} \
           ${lib.escapeShellArg "${stateDir}/scgi_temp"}
+
+        listen_address=${lib.escapeShellArg listenAddress}
+
+        ${lib.optionalString useTailscaleListenAddress ''
+          listen_address="$(${lib.getExe pkgs.tailscale} ip -4 2>/dev/null | ${pkgs.gnused}/bin/sed -n '/./{p;q;}')"
+
+          if [ -z "$listen_address" ]; then
+            listen_address='127.0.0.1'
+          fi
+        ''}
+
+        ${pkgs.gnused}/bin/sed \
+          "s|${tailscaleListenAddressPlaceholder}|$listen_address|g" \
+          ${lib.escapeShellArg (toString configFile)} > ${lib.escapeShellArg runtimeConfigFile}
       '';
     };
 }

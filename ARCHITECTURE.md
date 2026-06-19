@@ -56,6 +56,7 @@ That separation preserves the existing opencode wrapper architecture instead of 
 - enabled domains must be unique
 - both domains are expected to resolve to the same nginx listener
 - backends default to loopback
+- nginx can bind to `listenAddress = "tailscale"` by resolving `tailscale ip -4` at service start, with `127.0.0.1` as the fallback
 - nginx is the only service intended to bind beyond loopback
 
 The current design does not manage `tailscale serve`, DNS, or TLS certificates for custom domains. Those are expected to be handled outside this flake.

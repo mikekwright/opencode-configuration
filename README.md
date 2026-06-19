@@ -68,7 +68,7 @@ This flake does **not** manage:
 
 You are expected to point multiple domains at the same machine and nginx port, then let nginx route by `Host` header.
 
-For the most conservative setup, bind `services.aiagent.nginx.listenAddress` directly to the machine's Tailscale IP instead of `0.0.0.0`.
+For the most conservative setup, bind `services.aiagent.nginx.listenAddress` directly to the machine's Tailscale IP instead of `0.0.0.0`, or set it to `"tailscale"` to resolve `tailscale ip -4` when nginx starts and fall back to `127.0.0.1`.
 
 ## `services.aiagent`
 
@@ -93,7 +93,7 @@ The public module interface is:
 
     nginx = {
       enable = true;
-      listenAddress = "100.64.0.10";
+      listenAddress = "tailscale";
       port = 8123;
     };
   };
@@ -104,6 +104,7 @@ Behavior:
 
 - `services.aiagent.opencode.domain` tells nginx which host should proxy to `opencode`
 - `services.aiagent.openvscode.domain` tells nginx which host should proxy to `openvscode-server`
+- `services.aiagent.nginx.listenAddress = "tailscale"` resolves the first `tailscale ip -4` address when nginx starts and falls back to `127.0.0.1`
 - both domains must resolve to the same nginx listener
 - enabled services must use distinct ports
 - nginx requires at least one enabled backend with a domain
@@ -182,14 +183,14 @@ So if you already configure an OpenCode password, OpenVSCode Server can reuse it
 
     nginx = {
       enable = true;
-      listenAddress = "100.64.0.10";
+      listenAddress = "tailscale";
       port = 8123;
     };
   };
 }
 ```
 
-Point both domains at `100.64.0.10`, then access:
+Point both domains at the machine's current Tailscale IPv4, then access:
 
 - `http://agent.dev.internal:8123`
 - `http://code.dev.internal:8123`
@@ -270,7 +271,7 @@ Home Manager user services must use ports `>= 1024`.
 
     nginx = {
       enable = true;
-      listenAddress = "100.64.0.10";
+      listenAddress = "tailscale";
       port = 8123;
     };
   };
@@ -291,7 +292,7 @@ Home Manager user services must use ports `>= 1024`.
 
     nginx = {
       enable = true;
-      listenAddress = "100.64.0.10";
+      listenAddress = "tailscale";
       port = 8123;
     };
   };

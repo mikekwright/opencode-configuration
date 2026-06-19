@@ -63,9 +63,12 @@ let
     ];
 
   nginxStateDir = "/var/lib/aiagent/nginx";
+  renderedNginxListenAddress =
+    if nginxCfg.listenAddress == "tailscale" then helpers.tailscaleListenAddressPlaceholder else nginxCfg.listenAddress;
   nginxConfigFile = pkgs.writeText "aiagent-nginx.conf" (
     helpers.renderNginxConfig {
-      inherit (nginxCfg) listenAddress port extraConfig;
+      listenAddress = renderedNginxListenAddress;
+      inherit (nginxCfg) port extraConfig;
       routes = nginxRoutes;
       stateDir = nginxStateDir;
     }
@@ -138,7 +141,7 @@ let
 
   nginxLauncher = helpers.mkNginxServiceLauncher {
     inherit pkgs;
-    inherit (nginxCfg) package;
+    inherit (nginxCfg) package listenAddress;
     configFile = nginxConfigFile;
     stateDir = nginxStateDir;
     name = "nginx-systemd";
@@ -412,7 +415,7 @@ in
       listenAddress = lib.mkOption {
         type = lib.types.str;
         default = "127.0.0.1";
-        description = "Address that nginx listens on. For tailnet exposure, prefer a Tailscale IP instead of `0.0.0.0` when possible.";
+        description = "Address that nginx listens on. Set this to `\"tailscale\"` to resolve `tailscale ip -4` when the service starts and fall back to `127.0.0.1` if no Tailscale IPv4 is available.";
       };
 
       port = lib.mkOption {
