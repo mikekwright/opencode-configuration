@@ -100,6 +100,7 @@ let
     preRun = helpers.mkBindAddressResolution {
       bindAddress = opencodeServerCfg.hostname;
       optionPath = "services.aiagent.servers.opencode.hostname";
+      tailscaleCommand = lib.getExe pkgs.tailscale;
     };
     command = helpers.mkServeCommand {
       package = managedPackage;

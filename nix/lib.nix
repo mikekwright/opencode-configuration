@@ -108,17 +108,22 @@ rec {
       bindAddress,
       optionPath,
       envVar ? "AIAGENT_BIND_ADDRESS",
+      tailscaleCommand ? "tailscale",
     }:
+    let
+      bindAddressRef = ''"${"$"}${envVar}"'';
+      escapedTailscaleCommand = lib.escapeShellArg tailscaleCommand;
+    in
     ''
       ${envVar}=${lib.escapeShellArg bindAddress}
 
-      if [ "$${envVar}" = "tailscale" ]; then
-        if ! command -v tailscale >/dev/null 2>&1; then
-          printf '%s\n' ${lib.escapeShellArg "${optionPath} = \"tailscale\" requires the tailscale CLI to be available in PATH."} >&2
+      if [ ${bindAddressRef} = "tailscale" ]; then
+        if ! command -v ${escapedTailscaleCommand} >/dev/null 2>&1; then
+          printf '%s\n' ${lib.escapeShellArg "${optionPath} = \"tailscale\" requires the tailscale CLI to be available."} >&2
           exit 1
         fi
 
-        set -- $(tailscale ip -4 2>/dev/null)
+        set -- $(${escapedTailscaleCommand} ip -4 2>/dev/null)
 
         if [ "$#" -lt 1 ]; then
           printf '%s\n' ${lib.escapeShellArg "Failed to resolve a Tailscale IPv4 address for ${optionPath} = \"tailscale\"."} >&2
@@ -329,6 +334,7 @@ rec {
       preRun = mkBindAddressResolution {
         bindAddress = hostname;
         inherit optionPath;
+        tailscaleCommand = lib.getExe pkgs.tailscale;
       };
       command = mkOpenVSCodeServerCommand {
         inherit
