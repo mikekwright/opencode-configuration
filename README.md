@@ -34,6 +34,7 @@ nix run . -- serve
 - `packages.<system>.opencode` – wrapped `opencode`
 - `packages.<system>.openvscode-server` – upstream `openvscode-server`
 - `packages.<system>.computer-use-mcp` – packaged MCP server
+- `packages.<system>.meridian` – upstream Meridian package
 - `packages.<system>.rango-extension` – packaged unpacked Rango extension bundle
 - `packages.<system>.chromium-with-rango` – Linux-only Chromium wrapper for the managed virtual desktop flow
 - `packages.<system>.opencode-skills` – bundled opencode skills package
@@ -117,7 +118,7 @@ Migration note: older configs that relied on `services.aiagent.opencode.enable =
 
 ## Config layering
 
-The wrapper adds the Nix-generated MCP and skills configuration through `OPENCODE_CONFIG_CONTENT`.
+The wrapper adds the Nix-generated plugin, MCP, and skills configuration through `OPENCODE_CONFIG_CONTENT`.
 
 OpenCode merges config sources instead of replacing them, so the wrapped package still reads the usual locations as well:
 
@@ -128,6 +129,25 @@ OpenCode merges config sources instead of replacing them, so the wrapped package
 - `OPENCODE_CONFIG_DIR`
 
 The wrapper intentionally does not override `HOME`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG`, or `OPENCODE_CONFIG_DIR`, so bundled config from this flake is layered on top of the standard locations instead of replacing them. Standard locations are still read, but bundled keys win on conflicts because `OPENCODE_CONFIG_CONTENT` loads later.
+
+### Meridian plugin
+
+Enable the Meridian OpenCode plugin declaratively:
+
+```nix
+{
+  imports = [ inputs.opencode-configuration.homeManagerModules.default ];
+
+  services.aiagent = {
+    opencode = {
+      enable = true;
+      plugins.meridian.enable = true;
+    };
+  };
+}
+```
+
+This injects `${pkgs.meridian}/lib/meridian/plugin/meridian.ts` into the wrapper's generated `OPENCODE_CONFIG_CONTENT`, so it applies to both the wrapped `opencode` CLI and `opencode serve` when you use the managed package or service. It does not start the Meridian proxy or set `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` for you. In this Nix-managed flow, do not run `meridian setup`.
 
 ## Authentication defaults
 

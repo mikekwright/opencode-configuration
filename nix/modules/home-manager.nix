@@ -62,6 +62,11 @@ let
   managedPackage = mkOpencodePackage {
     inherit pkgs;
     opencodePackage = baseOpencodePackage;
+    plugins = {
+      meridian = {
+        inherit (opencodeCfg.plugins.meridian) enable package;
+      };
+    };
     mcp = {
       inherit (opencodeCfg.mcp) enable;
       computerUse = {
@@ -385,6 +390,18 @@ in
         type = lib.types.attrsOf lib.types.str;
         default = { };
         description = "Additional environment variables exported by the wrapped opencode package after services.aiagent.extraEnvs. This can include OPENCODE_SERVER_PASSWORD, though serverPasswordFile is preferred for secrets.";
+      };
+
+      plugins = {
+        meridian = {
+          enable = lib.mkEnableOption "the Meridian OpenCode plugin";
+
+          package = lib.mkOption {
+            type = lib.types.package;
+            default = self.packages.${pkgs.stdenv.hostPlatform.system}.meridian;
+            description = "Meridian package that provides the OpenCode plugin path.";
+          };
+        };
       };
 
       mcp = {

@@ -11,6 +11,7 @@ The `opencode` wrapper:
 - exports `OPENCODE_DISABLE_LSP_DOWNLOAD=true` by default
 - preserves standard OpenCode config discovery from global and project locations
 - restores bundled custom agents from `nix/config/agents/` through inline runtime config
+- can add managed plugin paths such as Meridian declaratively through inline runtime config
 - adds bundled opencode skill paths from the installed package
 - adds the remote `context7` MCP declaratively
 - adds the local `computer-use-mcp` server declaratively

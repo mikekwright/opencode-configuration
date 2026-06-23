@@ -14,6 +14,7 @@ in
 {
   pkgs,
   opencodePackage ? pkgs.opencode,
+  plugins ? { },
   mcp ? { },
   skills ? { },
   extraConfig ? { },
@@ -26,7 +27,7 @@ let
     "unwrappedOpencode"
   ] opencodePackage opencodePackage;
 
-  bundledRuntimeConfig = buildRuntimeConfig;
+  bundledRuntimeConfig = buildRuntimeConfig { inherit plugins; };
 
   runtimeConfig = lib.recursiveUpdate (lib.recursiveUpdate bundledRuntimeConfig (
     buildMcpConfig ({ enable = true; } // mcp)

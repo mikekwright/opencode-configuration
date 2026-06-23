@@ -1,8 +1,15 @@
 { lib }:
+{
+  plugins ? { },
+}:
 let
   bundledAgents = import ./agents;
+  meridianEnabled = lib.attrByPath [ "meridian" "enable" ] false plugins;
+  meridianPackage = lib.attrByPath [ "meridian" "package" ] null plugins;
+  meridianPluginPath = "${meridianPackage}/lib/meridian/plugin/meridian.ts";
 
-  normalizeAgent = agent:
+  normalizeAgent =
+    agent:
     let
       cleanedAgent = builtins.removeAttrs agent [ "permissions" ];
     in
@@ -35,9 +42,10 @@ let
     };
   };
 in
+assert !meridianEnabled || meridianPackage != null;
 {
   autoupdate = false;
-  plugin = [ "opencode-browser" ];
+  plugin = [ "opencode-browser" ] ++ lib.optionals meridianEnabled [ meridianPluginPath ];
   agent = lib.mapAttrs (_: normalizeAgent) bundledAgents;
   permission = permissionDefaults;
   provider = {

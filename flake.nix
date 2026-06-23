@@ -5,6 +5,8 @@
     # Opencode 1.17.8 (June 19th, 2026)
     nixpkgs.url = "github:NixOS/nixpkgs/59cc759eee14cdbdc52f52531a19f415b3e1dd8c";
 
+    meridian.url = "github:rynfar/meridian";
+
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -15,6 +17,7 @@
     {
       self,
       nixpkgs,
+      meridian,
       home-manager,
       ...
     }:
@@ -169,6 +172,7 @@
         {
           default = defaultPackage;
           opencode = defaultPackage;
+          inherit (meridian.packages.${system}) meridian;
           inherit (pkgs) openvscode-server;
           computer-use-mcp = computerUsePackage;
           rango-extension = rangoExtensionPackage;
@@ -234,6 +238,7 @@
         {
           default = self.packages.${system}.default;
           inherit (self.packages.${system})
+            meridian
             openvscode-server
             computer-use-mcp
             rango-extension
