@@ -15,6 +15,7 @@ let
   opencodeCfg = cfg.opencode;
   openvscodeCfg = cfg.openvscode;
   opencodeServerCfg = cfg.servers.opencode;
+  meridianServerCfg = cfg.servers.meridian;
   openvscodeServerCfg = cfg.servers.openvscode;
 
   computerUseVirtualDisplay = opencodeCfg.mcp.computerUse.virtualDisplay;
@@ -40,63 +41,77 @@ let
     else
       opencodeCfg.package;
 
+  meridianPackage = opencodeCfg.plugins.meridian.package;
+
   sharedEnv = cfg.extraEnvs;
   effectiveOpencodeEnv = sharedEnv // opencodeCfg.extraEnv;
 
-  packageExtraEnv = builtins.removeAttrs effectiveOpencodeEnv (
+  serviceOpencodeEnv = builtins.removeAttrs effectiveOpencodeEnv (
     lib.optional (opencodeServerCfg.serverPasswordFile != null) "OPENCODE_SERVER_PASSWORD"
     ++ lib.optional (opencodeServerCfg.serverUsername != null) "OPENCODE_SERVER_USERNAME"
   );
+
+  effectiveMeridianEnv = sharedEnv // meridianServerCfg.extraEnv;
+  hasMeridianApiKey =
+    effectiveMeridianEnv ? MERIDIAN_API_KEY || effectiveMeridianEnv ? CLAUDE_PROXY_API_KEY;
 
   hasOpenVSCodeToken =
     openvscodeServerCfg.connectionTokenFile != null || openvscodeServerCfg.connectionToken != null;
   openvscodeProgramName = builtins.baseNameOf (lib.getExe openvscodeCfg.package);
 
   wantsOpencodePackage = opencodeCfg.enable || opencodeServerCfg.enable;
+  wantsMeridianPackage = meridianServerCfg.enable;
   wantsOpenVSCodePackage = openvscodeCfg.enable || openvscodeServerCfg.enable;
 
   enabledPorts =
     lib.optionals opencodeServerCfg.enable [ opencodeServerCfg.port ]
+    ++ lib.optionals meridianServerCfg.enable [ meridianServerCfg.port ]
     ++ lib.optionals openvscodeServerCfg.enable [ openvscodeServerCfg.port ];
 
-  managedPackage = mkOpencodePackage {
-    inherit pkgs;
-    opencodePackage = baseOpencodePackage;
-    plugins = {
-      meridian = {
-        inherit (opencodeCfg.plugins.meridian) enable package;
-      };
-    };
-    mcp = {
-      inherit (opencodeCfg.mcp) enable;
-      computerUse = {
-        inherit (opencodeCfg.mcp.computerUse) enable package;
-        virtualDisplay = {
-          inherit (computerUseVirtualDisplay) enable fullDesktop;
-          display = effectiveComputerUseDisplay;
+  mkManagedPackage =
+    extraEnv:
+    mkOpencodePackage {
+      inherit pkgs;
+      opencodePackage = baseOpencodePackage;
+      plugins = {
+        meridian = {
+          inherit (opencodeCfg.plugins.meridian) enable;
+          package = meridianPackage;
         };
       };
-      openPencil = {
-        inherit (opencodeCfg.mcp.openPencil) enable url;
+      mcp = {
+        inherit (opencodeCfg.mcp) enable;
+        computerUse = {
+          inherit (opencodeCfg.mcp.computerUse) enable package;
+          virtualDisplay = {
+            inherit (computerUseVirtualDisplay) enable fullDesktop;
+            display = effectiveComputerUseDisplay;
+          };
+        };
+        openPencil = {
+          inherit (opencodeCfg.mcp.openPencil) enable url;
+        };
+        banani = {
+          inherit (opencodeCfg.mcp.banani) enable url;
+        };
       };
-      banani = {
-        inherit (opencodeCfg.mcp.banani) enable url;
+      skills = {
+        inherit (opencodeCfg.skills) enable package;
+        openPencil = {
+          inherit (opencodeCfg.skills.openPencil) enable package;
+        };
       };
+      inherit (opencodeCfg) extraConfig;
+      inherit extraEnv;
+      wrapperName = "opencode";
     };
-    skills = {
-      inherit (opencodeCfg.skills) enable package;
-      openPencil = {
-        inherit (opencodeCfg.skills.openPencil) enable package;
-      };
-    };
-    inherit (opencodeCfg) extraConfig;
-    extraEnv = packageExtraEnv;
-    wrapperName = "opencode";
-  };
+
+  managedPackage = mkManagedPackage effectiveOpencodeEnv;
+  managedServicePackage = mkManagedPackage serviceOpencodeEnv;
 
   opencodeLauncher = helpers.mkServiceLauncher {
     inherit pkgs;
-    package = managedPackage;
+    package = managedServicePackage;
     inherit (opencodeServerCfg) serverPasswordFile;
     virtualDisplay = {
       inherit (computerUseVirtualDisplay) enable fullDesktop;
@@ -112,7 +127,7 @@ let
       tailscaleCommand = lib.getExe pkgs.tailscale;
     };
     command = helpers.mkServeCommand {
-      package = managedPackage;
+      package = managedServicePackage;
       inherit (opencodeServerCfg) port extraArgs;
     };
     env =
@@ -121,6 +136,24 @@ let
         inherit (opencodeServerCfg) serverUsername;
         display = effectiveComputerUseDisplay;
       };
+  };
+
+  meridianLauncher = helpers.mkServiceLauncher {
+    inherit pkgs;
+    package = meridianPackage;
+    name = "meridian-service";
+    preRun = helpers.mkBindAddressResolution {
+      bindAddress = meridianServerCfg.hostname;
+      optionPath = "services.aiagent.servers.meridian.hostname";
+      tailscaleCommand = lib.getExe pkgs.tailscale;
+    };
+    command = ''
+      export MERIDIAN_HOST="$AIAGENT_BIND_ADDRESS"
+      exec ${lib.getExe meridianPackage}
+    '';
+    env = effectiveMeridianEnv // {
+      MERIDIAN_PORT = toString meridianServerCfg.port;
+    };
   };
 
   openvscodeLauncher = helpers.mkOpenVSCodeServiceLauncher {
@@ -586,6 +619,45 @@ in
         };
       };
 
+      meridian = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = opencodeCfg.plugins.meridian.enable;
+          defaultText = lib.literalExpression "config.services.aiagent.opencode.plugins.meridian.enable";
+          description = "Start the Meridian background service. Defaults to services.aiagent.opencode.plugins.meridian.enable.";
+        };
+
+        autoStart = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Start the Meridian service automatically.";
+        };
+
+        workingDirectory = lib.mkOption {
+          type = lib.types.str;
+          default = config.home.homeDirectory;
+          description = "Working directory used by the Meridian service.";
+        };
+
+        hostname = lib.mkOption {
+          type = lib.types.str;
+          default = "127.0.0.1";
+          description = "Address for Meridian. Set this to \"tailscale\" to resolve tailscale ip -4 when the service starts.";
+        };
+
+        port = lib.mkOption {
+          type = lib.types.port;
+          default = 3456;
+          description = "Port for Meridian.";
+        };
+
+        extraEnv = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          description = "Additional environment variables exported by the Meridian service after services.aiagent.extraEnvs. Use this for MERIDIAN_* settings such as MERIDIAN_API_KEY.";
+        };
+      };
+
       openvscode = {
         enable = lib.mkEnableOption "the OpenVSCode Server background service";
 
@@ -642,6 +714,10 @@ in
           message = "services.aiagent.servers.opencode.port must be >= 1024 for Home Manager user services.";
         }
         {
+          assertion = !meridianServerCfg.enable || meridianServerCfg.port >= 1024;
+          message = "services.aiagent.servers.meridian.port must be >= 1024 for Home Manager user services.";
+        }
+        {
           assertion = !openvscodeServerCfg.enable || openvscodeServerCfg.port >= 1024;
           message = "services.aiagent.servers.openvscode.port must be >= 1024 for Home Manager user services.";
         }
@@ -687,6 +763,13 @@ in
           message = "services.aiagent.opencode.mcp.banani.enable requires services.aiagent.extraEnvs.BANANI_API_KEY or services.aiagent.opencode.extraEnv.BANANI_API_KEY.";
         }
         {
+          assertion =
+            !meridianServerCfg.enable
+            || helpers.isLoopbackBindAddress meridianServerCfg.hostname
+            || hasMeridianApiKey;
+          message = "services.aiagent.servers.meridian.hostname = \"tailscale\" or a non-loopback address requires MERIDIAN_API_KEY or CLAUDE_PROXY_API_KEY. Set services.aiagent.extraEnvs.MERIDIAN_API_KEY, services.aiagent.extraEnvs.CLAUDE_PROXY_API_KEY, services.aiagent.servers.meridian.extraEnv.MERIDIAN_API_KEY, or services.aiagent.servers.meridian.extraEnv.CLAUDE_PROXY_API_KEY.";
+        }
+        {
           assertion = lib.length enabledPorts == lib.length (lib.unique enabledPorts);
           message = "Enabled aiagent services must use distinct ports.";
         }
@@ -694,6 +777,7 @@ in
 
       home.packages =
         lib.optionals wantsOpencodePackage [ managedPackage ]
+        ++ lib.optionals wantsMeridianPackage [ meridianPackage ]
         ++ lib.optionals wantsOpenVSCodePackage [ openvscodeCfg.package ];
 
       warnings =
@@ -725,6 +809,24 @@ in
         description = "OpenCode user service";
         launcher = opencodeLauncher;
         inherit (opencodeServerCfg) workingDirectory autoStart;
+      }
+    ))
+
+    (lib.mkIf (meridianServerCfg.enable && pkgs.stdenv.isDarwin) (
+      darwinSystem.mkAgent {
+        name = "meridian";
+        label = "ai.meridian";
+        launcher = meridianLauncher;
+        inherit (meridianServerCfg) workingDirectory autoStart;
+      }
+    ))
+
+    (lib.mkIf (meridianServerCfg.enable && pkgs.stdenv.isLinux) (
+      linuxSystem.mkUserService {
+        name = "meridian";
+        description = "Meridian user service";
+        launcher = meridianLauncher;
+        inherit (meridianServerCfg) workingDirectory autoStart;
       }
     ))
 

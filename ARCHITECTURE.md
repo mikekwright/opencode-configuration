@@ -32,6 +32,7 @@ The public module interface is `services.aiagent`.
 - `services.aiagent.opencode` manages package selection plus wrapper config such as MCP, skills, extra config, and wrapper env
 - `services.aiagent.openvscode` manages package selection for `openvscode-server`
 - `services.aiagent.servers.opencode` manages the `opencode serve` background service
+- `services.aiagent.servers.meridian` manages the Meridian background service
 - `services.aiagent.servers.openvscode` manages the `openvscode-server` background service
 - `services.aiagent.extraEnvs` is shared service environment passed into all launchers and used as the base env for the wrapped `opencode` package
 - Home Manager uses launchd on Darwin and systemd user services on Linux
@@ -44,11 +45,13 @@ This keeps package installation separate from service lifecycle while preserving
 The managed stack now binds services directly instead of generating a reverse proxy layer.
 
 - `services.aiagent.servers.opencode.hostname` and `services.aiagent.servers.openvscode.hostname` default to loopback
+- `services.aiagent.servers.meridian.hostname` also defaults to loopback
 - each service also supports `hostname = "tailscale"`
 - the launcher resolves `tailscale ip -4` at service start
 - if the `tailscale` CLI is not available in `PATH`, or no IPv4 address is returned, the service logs a message and fails to start
 - enabled services must use distinct ports
 - non-loopback OpenCode binds require a password source
+- non-loopback Meridian binds require `MERIDIAN_API_KEY` or `CLAUDE_PROXY_API_KEY`
 
 The current design does not manage `tailscale serve`, DNS, TLS certificates, or any reverse proxy.
 

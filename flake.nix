@@ -114,7 +114,10 @@
                 services.aiagent = {
                   extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-                  opencode.enable = true;
+                  opencode = {
+                    enable = true;
+                    plugins.meridian.enable = true;
+                  };
                   openvscode.enable = true;
 
                   servers = {
@@ -132,7 +135,7 @@
         pkgs:
         let
           nixosConfig = lib.nixosSystem {
-            system = pkgs.stdenv.hostPlatform.system;
+            inherit (pkgs.stdenv.hostPlatform) system;
             modules = [
               nixosModule
               {
@@ -141,7 +144,10 @@
                 services.aiagent = {
                   extraEnvs.OPENCODE_SERVER_PASSWORD = "secret";
 
-                  opencode.enable = true;
+                  opencode = {
+                    enable = true;
+                    plugins.meridian.enable = true;
+                  };
                   openvscode.enable = true;
 
                   servers = {
@@ -236,8 +242,8 @@
           pkgs = mkPkgs system;
         in
         {
-          default = self.packages.${system}.default;
           inherit (self.packages.${system})
+            default
             meridian
             openvscode-server
             computer-use-mcp

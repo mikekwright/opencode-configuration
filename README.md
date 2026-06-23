@@ -49,6 +49,7 @@ nix run . -- serve
 The managed services bind directly:
 
 ```text
+client -> meridian
 client -> opencode
 client -> openvscode-server
 ```
@@ -56,6 +57,7 @@ client -> openvscode-server
 Typical defaults:
 
 - `opencode` listens on `127.0.0.1:4096`
+- `meridian` listens on `127.0.0.1:3456`
 - `openvscode-server` listens on `127.0.0.1:9998`
 
 This flake does **not** manage:
@@ -94,6 +96,12 @@ The public module interface is:
         port = 4096;
       };
 
+      meridian = {
+        enable = true;
+        hostname = "127.0.0.1";
+        port = 3456;
+      };
+
       openvscode = {
         enable = true;
         hostname = "127.0.0.1";
@@ -109,9 +117,10 @@ Behavior:
 - `services.aiagent.opencode.enable` installs the wrapped CLI without creating a service
 - `services.aiagent.openvscode.enable` installs `openvscode-server` without creating a service
 - `services.aiagent.servers.*.enable` creates the actual background service
+- `services.aiagent.servers.meridian.enable` defaults to `services.aiagent.opencode.plugins.meridian.enable`
 - enabling a server also installs the needed package automatically
-- `services.aiagent.extraEnvs` is exported to all services and used as the base environment for the wrapped `opencode` package
-- `services.aiagent.opencode.extraEnv` is applied after `extraEnvs`, so it wins on conflicts for the wrapped `opencode` package
+- `services.aiagent.extraEnvs` is exported to all services and used as the base environment for wrapped `opencode` package and service invocations
+- `services.aiagent.opencode.extraEnv` is applied after `extraEnvs`, so it wins on conflicts for wrapped `opencode` package and service invocations
 - Home Manager user services must use ports `>= 1024`
 
 Migration note: older configs that relied on `services.aiagent.opencode.enable = true;` or `services.aiagent.openvscode.enable = true;` to start services now need `services.aiagent.servers.opencode.enable = true;` or `services.aiagent.servers.openvscode.enable = true;` as well.
@@ -147,7 +156,29 @@ Enable the Meridian OpenCode plugin declaratively:
 }
 ```
 
-This injects `${pkgs.meridian}/lib/meridian/plugin/meridian.ts` into the wrapper's generated `OPENCODE_CONFIG_CONTENT`, so it applies to both the wrapped `opencode` CLI and `opencode serve` when you use the managed package or service. It does not start the Meridian proxy or set `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` for you. In this Nix-managed flow, do not run `meridian setup`.
+This injects `${pkgs.meridian}/lib/meridian/plugin/meridian.ts` into the wrapper's generated `OPENCODE_CONFIG_CONTENT`, so it applies to both the wrapped `opencode` CLI and `opencode serve` when you use the managed package or service. In this Nix-managed flow, do not run `meridian setup`.
+
+When the plugin is enabled, `services.aiagent.servers.meridian.enable` defaults to `true`, so Meridian is managed as a background service unless you override it.
+
+Point OpenCode at the managed Meridian service with `services.aiagent.extraEnvs` or `services.aiagent.opencode.extraEnv`:
+
+```nix
+{
+  services.aiagent = {
+    extraEnvs = {
+      ANTHROPIC_API_KEY = "x";
+      ANTHROPIC_BASE_URL = "http://127.0.0.1:3456";
+    };
+
+    opencode = {
+      enable = true;
+      plugins.meridian.enable = true;
+    };
+  };
+}
+```
+
+Those environment variables are exported to both the wrapped `opencode` CLI and the managed `opencode serve` process. If you expose Meridian beyond loopback, also set `MERIDIAN_API_KEY` or `CLAUDE_PROXY_API_KEY` through `services.aiagent.extraEnvs` or `services.aiagent.servers.meridian.extraEnv`.
 
 ## Authentication defaults
 
@@ -160,6 +191,15 @@ OpenCode still uses its own password handling:
 - `services.aiagent.opencode.extraEnv.OPENCODE_SERVER_PASSWORD`
 
 If `services.aiagent.servers.opencode.hostname` is not loopback, evaluation requires one of those password sources.
+
+### Meridian
+
+- `services.aiagent.extraEnvs.MERIDIAN_API_KEY`
+- `services.aiagent.extraEnvs.CLAUDE_PROXY_API_KEY`
+- `services.aiagent.servers.meridian.extraEnv.MERIDIAN_API_KEY`
+- `services.aiagent.servers.meridian.extraEnv.CLAUDE_PROXY_API_KEY`
+
+If `services.aiagent.servers.meridian.hostname` is not loopback, evaluation requires one of those API key sources.
 
 ### OpenVSCode Server
 
