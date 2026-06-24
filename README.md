@@ -2,6 +2,14 @@
 
 This flake packages `opencode` and `openvscode-server`, then exposes Home Manager and NixOS modules under `services.aiagent` for an AI-first development machine.
 
+## Overview
+
+There are plugins that are part of this solution, the plugin concept enables the installed agents to have access to solutions that would enhance the opencode
+configuration.
+
+* [Meridian - Claude Subscription](https://github.com/rynfar/meridian)
+
+
 ## Usage
 
 Run wrapped `opencode`:
