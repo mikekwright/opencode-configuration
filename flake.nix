@@ -2,8 +2,8 @@
   description = "Package opencode and expose aiagent service modules";
 
   inputs = {
-    # Opencode 1.17.8 (June 19th, 2026)
-    nixpkgs.url = "github:NixOS/nixpkgs/59cc759eee14cdbdc52f52531a19f415b3e1dd8c";
+    # Opencode 1.17.18 (July 10th, 2026)
+    nixpkgs.url = "github:NixOS/nixpkgs/dc5eccaaeada7995d3b817e7d7c3bf3ab30b9b20";
 
     meridian.url = "github:rynfar/meridian";
 
