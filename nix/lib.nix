@@ -256,8 +256,13 @@ rec {
         display_socket="/tmp/.X11-unix/X$display_number"
         display_lock="/tmp/.X$display_number-lock"
 
+<<<<<<< Updated upstream
         if ${pkgs.xorg.xdpyinfo}/bin/xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
           printf '%s\n' "Managed virtual display $DISPLAY is already active; choose a different services.aiagent.opencode.mcp.computerUse.virtualDisplay.display." >&2
+=======
+        if ${pkgs.xdpyinfo}/bin/xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+          printf '%s\n' "Managed virtual display $DISPLAY is already active; choose a different services.opencode.mcp.computerUse.virtualDisplay.display." >&2
+>>>>>>> Stashed changes
           exit 1
         fi
 
@@ -267,12 +272,12 @@ rec {
 
         trap cleanup_managed_desktop EXIT INT TERM
 
-        ${pkgs.xorg.xorgserver}/bin/Xvfb "$DISPLAY" -screen 0 1920x1080x24 -nolisten tcp -ac &
+        ${pkgs.xorgserver}/bin/Xvfb "$DISPLAY" -screen 0 1920x1080x24 -nolisten tcp -ac &
         xvfb_pid=$!
 
         desktop_ready=0
         for _ in $(${pkgs.coreutils}/bin/seq 1 50); do
-          if ${pkgs.xorg.xdpyinfo}/bin/xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+          if ${pkgs.xdpyinfo}/bin/xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
             desktop_ready=1
             break
           fi
@@ -284,7 +289,7 @@ rec {
           exit 1
         fi
 
-        ${pkgs.xorg.xsetroot}/bin/xsetroot -display "$DISPLAY" -solid '#202020' >/dev/null 2>&1 || true
+        ${pkgs.xsetroot}/bin/xsetroot -display "$DISPLAY" -solid '#202020' >/dev/null 2>&1 || true
         ${pkgs.openbox}/bin/openbox >/dev/null 2>&1 &
         openbox_pid=$!
 

@@ -3,7 +3,7 @@
 
   inputs = {
     # Opencode 1.17.18 (July 10th, 2026)
-    nixpkgs.url = "github:NixOS/nixpkgs/dc5eccaaeada7995d3b817e7d7c3bf3ab30b9b20";
+    nixpkgs.url = "github:NixOS/nixpkgs/4934f50037d7236f9c4fcc364b52d4aa1492e4f6";
 
     meridian.url = "github:rynfar/meridian";
 
